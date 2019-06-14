@@ -1,4 +1,4 @@
-# zalando-research-fashionmnist-experiments
+# zalando-research-fashionmnist-experiments [![Build Status](https://travis-ci.com/hyzhak/zalando-research-fashionmnist-experiments.svg?branch=master)](https://travis-ci.com/hyzhak/zalando-research-fashionmnist-experiments)
 
 My research of Zalando Research Fashion MNIST
 
