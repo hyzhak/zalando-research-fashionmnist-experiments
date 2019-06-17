@@ -1,7 +1,7 @@
 import luigi
 
 
-class LabelTitles(luigi.ExternalTask):
+class ExternalLabelTitles(luigi.ExternalTask):
     def output(self):
         return luigi.LocalTarget('data/raw/label-titles.yaml')
 
