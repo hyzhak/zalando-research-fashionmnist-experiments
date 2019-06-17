@@ -1,15 +1,19 @@
 import luigi
+import mlflow
+import mlflow.sklearn
 import numpy as np
 import pandas as pd
 import pickle
 from sklearn.linear_model import LogisticRegression
 import time
 
-from ..data.external_train_set import ExternalTrainSet
-from ..utils.params_to_filename import params_to_filename
+from src.data.external_train_set import ExternalTrainSet
+from src.utils.params_to_filename import params_to_filename
 
 
 class TrainBaselineLogisticRegression(luigi.Task):
+    model_name = 'logistic-regression'
+
     solver = luigi.Parameter(default='lbfgs')
     # for small datasets 'liblinear'
     # 'sag' and 'saga' for large
@@ -46,10 +50,17 @@ class TrainBaselineLogisticRegression(luigi.Task):
                                  n_jobs=self.n_jobs,
                                  max_iter=self.max_iter)
         clf.fit(X_train, y_train)
-        fitting_time = time.time() - start
-        print('fitting time', fitting_time)
+        training_time = time.time() - start
+
+        mlflow.sklearn.log_model(clf, 'model')
         with self.output().open('w') as f:
             pickle.dump(clf, f)
+        mlflow.log_param('model_name', self.model_name)
+        mlflow.log_param('solver', self.solver)
+        mlflow.log_param('multi_class', self.multi_class)
+        mlflow.log_param('random_seed', self.random_seed)
+        mlflow.log_param('max_iter', self.max_iter)
+        mlflow.log_metric('training_time', training_time)
 
     def _extract_x_and_y(self, input_file):
         with input_file.open('r') as f:
@@ -60,4 +71,5 @@ class TrainBaselineLogisticRegression(luigi.Task):
 
 
 if __name__ == '__main__':
-    luigi.run()
+    with mlflow.start_run():
+        luigi.run()

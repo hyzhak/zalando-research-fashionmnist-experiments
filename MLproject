@@ -1,0 +1,5 @@
+name: logistic_regression
+
+entry_points:
+  main:
+    command: "PYTHONPATH='.' python src/visualization/scikit_score.py"
