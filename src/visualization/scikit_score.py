@@ -1,6 +1,10 @@
 # TODO: shouldn't I split this task in 2: scores and confusion matrix?
 # or train and test?
 
+# and btw it isn't recommended from luigi docs
+# https://luigi.readthedocs.io/en/stable/tasks.html#task-output
+# to have multiple output files
+
 import luigi
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -40,12 +44,12 @@ class ScikitScore(luigi.Task):
         }
 
     def requires(self):
-        return (
-            TrainBaselineLogisticRegression(**self.model_params),
-            ExternalLabelTitles(),
-            ExternalTestSet(),
-            ExternalTrainSet(),
-        )
+        return {
+            'model': TrainBaselineLogisticRegression(**self.model_params),
+            'label_titles': ExternalLabelTitles(),
+            'test': ExternalTestSet(),
+            'train': ExternalTrainSet(),
+        }
 
     def _score(self, y_true, y_pred):
         return {
@@ -56,10 +60,8 @@ class ScikitScore(luigi.Task):
             'recall': float(metrics.recall_score(y_true, y_pred, average='macro')),
         }
 
-    def _save_confusion_matrix(self, y_true, y_pred, input_file, fontsize=14):
-        with self.input()[1].open('r') as f:
-            label_titles = yaml.load(f)
-
+    def _save_confusion_matrix(self, y_true, y_pred,
+                               label_titles, input_file, fontsize=14):
         train_cm = metrics.confusion_matrix(y_true, y_pred,
                                             range(len(label_titles)))
         df_cm = pd.DataFrame(
@@ -76,9 +78,9 @@ class ScikitScore(luigi.Task):
         return input_file.path
 
     def run(self):
-        model = pickle.load(self.input()[0].open('r'))
-        X_test, y_test = extract_x_and_y(self.input()[2])
-        X_train, y_train = extract_x_and_y(self.input()[3])
+        model = pickle.load(self.input()['model'].open('r'))
+        X_test, y_test = extract_x_and_y(self.input()['test'])
+        X_train, y_train = extract_x_and_y(self.input()['train'])
         y_test_pred = model.predict(X_test)
         y_train_pred = model.predict(X_train)
 
@@ -98,8 +100,11 @@ class ScikitScore(luigi.Task):
             mlflow.log_metric(f'{score_name_train} train', score_value_train)
             mlflow.log_metric(f'{score_name_test} test', score_value_test)
 
-        test_cm_path = self._save_confusion_matrix(y_test, y_test_pred, self.output()['test_cm'])
-        train_cm_path = self._save_confusion_matrix(y_train, y_train_pred, self.output()['train_cm'])
+        with self.input()['label_titles'].open('r') as f:
+            label_titles = yaml.load(f)
+
+        test_cm_path = self._save_confusion_matrix(y_test, y_test_pred, label_titles, self.output()['test_cm'])
+        train_cm_path = self._save_confusion_matrix(y_train, y_train_pred, label_titles, self.output()['train_cm'])
 
         mlflow.log_artifact(test_cm_path, 'confusion_matrices/test')
         mlflow.log_artifact(train_cm_path, 'confusion_matrices/train')
