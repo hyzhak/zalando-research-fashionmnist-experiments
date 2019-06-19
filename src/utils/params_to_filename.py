@@ -1,3 +1,7 @@
+import luigi
+import json
+
+
 def encode_value(v):
     if v is dict:
         return v
@@ -21,8 +25,24 @@ def params_to_filename(d):
 
 
 def encode_task_to_filename(task):
-    family = task.get_task_family()
-    encoded_params = params_to_filename(
-        task.to_str_params(only_significant=True, only_public=True)) or 'default'
+    # family = task.get_task_family()
+    # encoded_params = params_to_filename(
+    #     task.to_str_params(only_significant=True, only_public=True)) or 'default'
 
-    return '__'.join((family, encoded_params))
+    # return '__'.join((family, encoded_params))
+
+    # undo encoding of dicts to string
+    params = task.to_str_params(only_significant=True, only_public=True)
+    # each value is encoded to string, event when it is dict
+    # I'm trying to unwrap dict, because default dict encoding isn't good enough for filename
+    for param_name, param_value in params.items():
+        if isinstance(param_value, str):
+            try:
+                param_value = json.loads(param_value)
+                params[param_name] = param_value
+            except:
+                pass
+
+    return params_to_filename(
+        params
+    ) or 'default'
