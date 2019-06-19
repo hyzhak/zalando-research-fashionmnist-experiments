@@ -18,11 +18,11 @@ from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
 from src.data.external_label_titles import ExternalLabelTitles
 from src.models.baseline_logistic_regression import TrainBaselineLogisticRegression
-from src.utils.params_to_filename import params_to_filename
 from src.utils.extract_x_y import extract_x_and_y
+from src.utils.params_to_filename import encode_task_to_filename
 
 
-class ScikitScore(luigi.Task):
+class LogMetrics(luigi.Task):
     model_name = luigi.Parameter(
         default='logistic-regression',
         description='model name (e.g. logistic-regression)'
@@ -31,17 +31,9 @@ class ScikitScore(luigi.Task):
         default={},
         description='model params'
     )
-
-    def output(self):
-        filename = params_to_filename({
-            'model': self.model_name,
-            **self.model_params
-        })
-        return {
-            'score': luigi.LocalTarget(f'reports/scores/{filename}.yaml'),
-            'train_cm': luigi.LocalTarget(f'reports/figures/confusion_matrices/{filename}_train.png'),
-            'test_cm': luigi.LocalTarget(f'reports/figures/confusion_matrices/{filename}_test.png'),
-        }
+    experiment_id = luigi.Parameter(
+        significant=False
+    )
 
     def requires(self):
         return {
@@ -49,6 +41,14 @@ class ScikitScore(luigi.Task):
             'label_titles': ExternalLabelTitles(),
             'test': ExternalTestSet(),
             'train': ExternalTrainSet(),
+        }
+
+    def output(self):
+        filename = encode_task_to_filename(self)
+        return {
+            'score': luigi.LocalTarget(f'reports/scores/{filename}.yaml'),
+            'train_cm': luigi.LocalTarget(f'reports/figures/confusion_matrices/{filename}_train.png'),
+            'test_cm': luigi.LocalTarget(f'reports/figures/confusion_matrices/{filename}_test.png'),
         }
 
     def _score(self, y_true, y_pred):
@@ -86,32 +86,37 @@ class ScikitScore(luigi.Task):
 
         scores = {
             'test': self._score(y_test, y_test_pred),
+            # TODO: add validation metrics
             'train': self._score(y_train, y_train_pred),
         }
 
-        with self.output()['score'].open('w') as f:
-            yaml.dump(scores, f, default_flow_style=False)
+        with mlflow.start_run(experiment_id=self.experiment_id,
+                              nested=self.experiment_id is not None) as child_run:
+            # hm.. is it right place to store run_id?
+            scores['run_id'] = child_run.info.run_id
+            mlflow.log_param('model_name', self.model_name)
+            for (score_name_train, score_value_train), (score_name_test, score_value_test) \
+                    in zip(scores['train'].items(), scores['test'].items()):
+                # Names may only contain alphanumerics, underscores (_),
+                #  dashes (-), periods (.), spaces ( ), and slashes (/).
+                mlflow.log_metric(f'{score_name_train} train', score_value_train)
+                mlflow.log_metric(f'{score_name_test} test', score_value_test)
 
-        mlflow.log_param('model_name', self.model_name)
-        for (score_name_train, score_value_train), (score_name_test, score_value_test) \
-                in zip(scores['train'].items(), scores['test'].items()):
-            # Names may only contain alphanumerics, underscores (_),
-            #  dashes (-), periods (.), spaces ( ), and slashes (/).
-            mlflow.log_metric(f'{score_name_train} train', score_value_train)
-            mlflow.log_metric(f'{score_name_test} test', score_value_test)
+            with self.output()['score'].open('w') as f:
+                yaml.dump(scores, f, default_flow_style=False)
 
-        with self.input()['label_titles'].open('r') as f:
-            label_titles = yaml.load(f)
+            with self.input()['label_titles'].open('r') as f:
+                label_titles = yaml.load(f)
 
-        test_cm_path = self._save_confusion_matrix(y_test, y_test_pred, label_titles, self.output()['test_cm'])
-        train_cm_path = self._save_confusion_matrix(y_train, y_train_pred, label_titles, self.output()['train_cm'])
+            test_cm_path = self._save_confusion_matrix(y_test, y_test_pred, label_titles, self.output()['test_cm'])
+            train_cm_path = self._save_confusion_matrix(y_train, y_train_pred, label_titles, self.output()['train_cm'])
 
-        mlflow.log_artifact(test_cm_path, 'confusion_matrices/test')
-        mlflow.log_artifact(train_cm_path, 'confusion_matrices/train')
+            mlflow.log_artifact(test_cm_path, 'confusion_matrices/test')
+            mlflow.log_artifact(train_cm_path, 'confusion_matrices/train')
 
-        print(f'Model saved in run {mlflow.active_run().info.run_uuid}')
+            print(f'Model saved in run {mlflow.active_run().info.run_uuid}')
 
 
 if __name__ == '__main__':
-    with mlflow.start_run():
-        luigi.run(main_task_cls=ScikitScore)
+    # with mlflow.start_run():
+    luigi.run(main_task_cls=LogMetrics)

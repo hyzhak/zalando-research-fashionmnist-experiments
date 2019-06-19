@@ -8,32 +8,40 @@ from sklearn.linear_model import LogisticRegression
 import time
 
 from src.data.external_train_set import ExternalTrainSet
-from src.utils.params_to_filename import params_to_filename
+from src.utils.params_to_filename import encode_task_to_filename
 
 
 class TrainBaselineLogisticRegression(luigi.Task):
-    model_name = 'logistic-regression'
+    model_name = 'logistic_regression'
 
-    solver = luigi.Parameter(default='lbfgs')
+    solver = luigi.Parameter(
+        default='lbfgs',
+        description='Algorithm to use in the optimization problem'
+    )
     # for small datasets 'liblinear'
     # 'sag' and 'saga' for large
     # 'newton-cg'
 
     multi_class = luigi.Parameter(default='multinomial')
+    C = luigi.FloatParameter(
+        default=1.0,
+        description='Inverse of regularization strength; '
+                    'must be a positive float. '
+                    'Like in support vector machines, smaller values specify stronger regularization.'
+    )
     random_seed = luigi.IntParameter(default=12345)
-    n_jobs = luigi.IntParameter(default=-1)
+    n_jobs = luigi.IntParameter(
+        default=-1,
+        significant=False
+    )
     max_iter = luigi.IntParameter(default=100)
 
     # model_file = luigi.Parameter(default='model.pkl')
 
     def output(self):
-        filename = params_to_filename({
-            'multi_class': self.multi_class,
-            'random_seed': self.random_seed,
-            'max_iter': self.max_iter
-        })
+        filename = encode_task_to_filename(self)
         return luigi.LocalTarget(
-            f'models/baseline/logistic-regression/{filename}.pkl',
+            f'models/baseline/{self.model_name}/{filename}.pkl',
             format=luigi.format.Nop
         )
 
