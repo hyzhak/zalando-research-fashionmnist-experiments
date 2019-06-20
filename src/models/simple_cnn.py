@@ -1,6 +1,7 @@
 import luigi
 import mlflow
 import numpy as np
+import random as rn
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow import keras
@@ -73,6 +74,13 @@ class SimpleCNN(luigi.Task):
         }
 
     def run(self):
+        # seed random everywhere
+        # there is still problem with GPU
+        # https://keras.io/getting-started/faq/#how-can-i-obtain-reproducible-results-using-keras-during-development
+        tf.random.set_random_seed(self.random_seed)
+        np.random.seed(self.random_seed)
+        rn.seed(self.random_seed)
+
         with mlflow.start_run(experiment_id=self.experiment_id if self.experiment_id else None,
                               nested=self.experiment_id is not None) as run:
             # scores['run_id'] = run.info.run_id
@@ -129,6 +137,9 @@ class SimpleCNN(luigi.Task):
                           loss=self.loss,
                           metrics=[self.metrics])
 
+            # log model params to mlflow
+            mlflow.log_param('model_name', self.model_name)
+            mlflow.log_params(self.to_str_params(only_significant=True, only_public=True))
             mlflow.log_param('num_of_model_params', model.count_params())
 
             if self.verbose > 0:
