@@ -1,9 +1,6 @@
 import luigi
 import mlflow
-import numpy as np
-import random as rn
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
@@ -15,6 +12,7 @@ from src.data.external_train_set import ExternalTrainSet
 from src.models.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import extract_x_and_y, reshape_X_to_2d
 from src.utils.params_to_filename import encode_task_to_filename
+from src.utils.seed_randomness import seed_randomness
 
 
 class SimpleCNN(luigi.Task):
@@ -74,13 +72,7 @@ class SimpleCNN(luigi.Task):
         }
 
     def run(self):
-        # seed random everywhere
-        # there is still problem with GPU
-        # https://keras.io/getting-started/faq/#how-can-i-obtain-reproducible-results-using-keras-during-development
-        tf.random.set_random_seed(self.random_seed)
-        np.random.seed(self.random_seed)
-        rn.seed(self.random_seed)
-
+        seed_randomness(self.random_seed)
         with mlflow.start_run(experiment_id=self.experiment_id if self.experiment_id else None,
                               nested=self.experiment_id is not None) as run:
             # scores['run_id'] = run.info.run_id
