@@ -17,6 +17,13 @@ from src.utils.seed_randomness import seed_randomness
 
 class SimpleCNN(luigi.Task):
     model_name = 'simple_cnn'
+    # TODO: how would I know which model is logged in luigi and mlflow?
+    # 1) I can increase version each time I make changes in structure
+    # 2) or put model in separate module and find hash on it
+    # and store hash in mlflow and luigi
+    # 3) or put short description instead of version
+    # 4) each new model should have separate luigi task
+    model_version = 'v1'
 
     experiment_id = luigi.Parameter(
         default='',
@@ -62,9 +69,12 @@ class SimpleCNN(luigi.Task):
     def output(self):
         filename = encode_task_to_filename(self)
 
+        # TODO: could we just store mlflow run id
+        # and use it to get model and scores?
         return {
             'model': luigi.LocalTarget(
-                f'models/{self.model_name}/{filename}'
+                f'models/{self.model_name}/{filename}.h5',
+                format=luigi.format.Nop
             ),
             'score': luigi.LocalTarget(
                 f'reports/scores/{self.model_name}/{filename}'
@@ -82,13 +92,16 @@ class SimpleCNN(luigi.Task):
                 random_state=self.random_seed,
             )
             X_test, y_test = extract_x_and_y(self.input()['test'])
-            model = self._train_model(
+            best_model = self._train_model(
                 reshape_X_to_2d(X_train), y_train,
                 reshape_X_to_2d(X_valid), y_valid,
                 reshape_X_to_2d(X_test), y_test
             )
 
-            # TODO: store the best model
+            with self.output()['model'].open('w') as f:
+                best_model.save(f, overwrite=True)
+
+            # TODO: store scores
 
     def _train_model(self,
                      train_x, train_y,
