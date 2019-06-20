@@ -1,14 +1,13 @@
 import luigi
 import mlflow
 import mlflow.sklearn
-import numpy as np
-import pandas as pd
 import pickle
 from sklearn.linear_model import LogisticRegression
 import time
 
 from src.data.external_train_set import ExternalTrainSet
 from src.utils.params_to_filename import encode_task_to_filename
+from src.utils.extract_x_y import extract_x_and_y
 
 
 class TrainBaselineLogisticRegression(luigi.Task):
@@ -49,7 +48,7 @@ class TrainBaselineLogisticRegression(luigi.Task):
         return ExternalTrainSet()
 
     def run(self):
-        X_train, y_train = self._extract_x_and_y(self.input())
+        X_train, y_train = extract_x_and_y(self.input())
 
         start = time.time()
         clf = LogisticRegression(solver=self.solver,
@@ -69,13 +68,6 @@ class TrainBaselineLogisticRegression(luigi.Task):
         mlflow.log_param('random_seed', self.random_seed)
         mlflow.log_param('max_iter', self.max_iter)
         mlflow.log_metric('training_time', training_time)
-
-    def _extract_x_and_y(self, input_file):
-        with input_file.open('r') as f:
-            df = pd.read_csv(f, dtype=np.int16)
-
-        pixel_features = df.columns[df.columns.str.contains('pixel')]
-        return df[pixel_features], df['label']
 
 
 if __name__ == '__main__':
