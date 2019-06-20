@@ -5,12 +5,11 @@ import numpy as np
 from sklearn import metrics
 from tensorflow import keras
 from tensorflow.keras.callbacks import Callback
+import time
 
 
 def eval_and_log_metrics(prefix, y_true, y_pred, epoch):
-    print('# eval_and_log_metrics')
     metric_name = 'accuracy'
-    print('(y_true, y_pred)', (y_true.shape, y_pred.shape))
     metric = metrics.accuracy_score(y_true, y_pred)
     mlflow.log_metric(f'{metric_name} {prefix}', metric, step=epoch)
     return metric
@@ -41,6 +40,7 @@ class MLflowCheckpoint(Callback):
         self._best_val_loss = math.inf
         self._best_model = None
         self._next_step = 0
+        self._epoch_start_at = 0
 
     def __enter__(self):
         return self
@@ -59,6 +59,9 @@ class MLflowCheckpoint(Callback):
 
         mlflow.keras.log_model(self._best_model, 'model')
 
+    def on_epoch_begin(self, epoch, logs=None):
+        self._epoch_start_at = time.time()
+
     def on_epoch_end(self, epoch, logs=None):
         """
         Log Keras metrics with MLflow. If model improved on the validation data, evaluate it on
@@ -75,6 +78,7 @@ class MLflowCheckpoint(Callback):
             f'{self._target_loss} loss val': val_loss,
             f'{self._target_loss} acc train': logs['acc'],
             f'{self._target_loss} acc val': logs['val_acc'],
+            f'epoch train time': time.time() - self._epoch_start_at
         }, step=epoch)
 
         if val_loss < self._best_val_loss:
