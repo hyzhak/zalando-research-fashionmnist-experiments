@@ -3,6 +3,7 @@ import mlflow
 import os
 import shutil
 from sklearn.model_selection import train_test_split
+import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
@@ -143,10 +144,37 @@ class SimpleCNN(luigi.Task):
                 Activation('softmax'),
             ])
 
+            # TODO: it is solution to save weight only
+            #
+            # tensorflow:This model was compiled with a Keras optimizer
+            # (<tensorflow.python.keras.optimizers.Adam object at 0x7fe86828bf28>)
+            # but is being saved in TensorFlow format with `save_weights`.
+            # The model's weights will be saved, but unlike with TensorFlow optimizers
+            # in the TensorFlow format the optimizer's state will not be saved.
+            #
+            # Consider using a TensorFlow optimizer from `tf.train`.
+            #
+            # name_to_optimizer = {
+            #     'adam': tf.train.AdamOptimizer,
+            # }
+            # optimizer = name_to_optimizer[self.optimizer](**self.optimizer_props)
+            # print('tf.train[self.optimizer]', tf.train[self.optimizer])
+
+            #
+            # but when we need to save not only weights tf.train doesn't work properly
+            #
+
+            # WARNING:tensorflow:TensorFlow optimizers do not make it possible to access optimizer attributes
+            # or optimizer state after instantiation. As a result, we cannot save the optimizer as part of
+            # the model save file.You will have to compile your model again after loading it.
+            # Prefer using a Keras optimizer instead (see keras.io/optimizers).
+
             # we are getting instance of optimizer here
             optimizer = optimizers.get(self.optimizer)
             # so to create new with out setting we should use `from_config`
-            model.compile(optimizer=optimizer.from_config(self.optimizer_props),
+            optimizer = optimizer.from_config(self.optimizer_props)
+
+            model.compile(optimizer=optimizer,
                           loss=self.loss,
                           metrics=[self.metrics])
 
@@ -176,6 +204,12 @@ class SimpleCNN(luigi.Task):
             tf_log_dir = os.path.join(tf_log_dir, str(int(time.time())))
 
             start = time.time()
+
+            # create needed dirs to store model checkpoint
+            output_model = self.output()['model']
+            output_model.makedirs()
+            model_checkpoint_path = f'{output_model.path}_tmp'
+
             model.fit(
                 train_x, train_y,
                 epochs=self.epoch,
@@ -186,16 +220,30 @@ class SimpleCNN(luigi.Task):
                 callbacks=[
                     EarlyStopping(monitor='val_loss', patience=2),
                     # isn't clear where to store and how would it work with self.output()['model']
-                    # ModelCheckpoint(),
+                    ModelCheckpoint(
+                        filepath=model_checkpoint_path,
+                        save_best_only=True,
+                        # FIXME:
+                        # the goal of that saving that we can continue train from this point
+                        # but it doesn't work properly because TF doesn't allow Keras optimizer
+                        # save_weights_only=True,
+                        save_weights_only=False,
+                    ),
                     TensorBoard(
                         log_dir=tf_log_dir,
-                        write_images=True
+                        write_images=True,
                     ),
+                    # TODO: how can I use it?
+                    # LearningRateScheduler
+                    # should be optional
+                    # ReduceLROnPlateau
                     mlflow_logger
                 ]
             )
             training_time = time.time() - start
             mlflow.log_metric('total_train_time', training_time)
+
+            # TODO: remove checkpoints once we save the final model
         return model
 
     def _predict(self):
