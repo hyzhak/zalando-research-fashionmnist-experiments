@@ -10,6 +10,7 @@ from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
 from tensorflow.keras import optimizers
 import time
+import yaml
 
 from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
@@ -76,17 +77,18 @@ class SimpleCNN(luigi.Task):
         }
 
     def output(self):
+        # TODO: ideally we should check whether we have this model and score on mlflow
+        # if we don't have train and evaluate
+        # how could I get run id because on task parameters?
         filename = encode_task_to_filename(self)
 
-        # TODO: could we just store mlflow run id
-        # and use it to get model and scores?
         return {
             'model': luigi.LocalTarget(
                 f'models/{self.model_name}/{filename}.h5',
                 format=luigi.format.Nop
             ),
-            'score': luigi.LocalTarget(
-                f'reports/scores/{self.model_name}/{filename}'
+            'metrics': luigi.LocalTarget(
+                f'reports/metrics/{self.model_name}/{filename}'
             ),
         }
 
@@ -101,12 +103,14 @@ class SimpleCNN(luigi.Task):
                 random_state=self.random_seed,
             )
             X_test, y_test = extract_x_and_y(self.input()['test'])
-            best_model, checkpoint_path = self._train_model(
+            best_model, checkpoint_path, metrics = self._train_model(
                 reshape_X_to_2d(X_train), y_train,
                 reshape_X_to_2d(X_valid), y_valid,
                 reshape_X_to_2d(X_test), y_test
             )
 
+            # TODO: hm, actually we just need to move checkpoint to the place of target model
+            # because it's the best model for the moment
             with self.output()['model'].open('w') as f:
                 best_model.save(f, overwrite=True)
 
@@ -114,6 +118,9 @@ class SimpleCNN(luigi.Task):
             os.remove(checkpoint_path)
 
             # TODO: store scores
+            # store accuracy and loss on train, test, validate sets
+            with self.output()['metrics'].open('w') as f:
+                yaml.dump(metrics, f, default_flow_style=False)
 
     def _train_model(self,
                      train_x, train_y,
@@ -246,8 +253,9 @@ class SimpleCNN(luigi.Task):
             training_time = time.time() - start
             mlflow.log_metric('total_train_time', training_time)
 
-            # TODO: remove checkpoints once we save the final model
-        return model, model_checkpoint_path
+            metrics = mlflow_logger.get_best_metrics()
+
+        return model, model_checkpoint_path, metrics
 
     def _predict(self):
         pass

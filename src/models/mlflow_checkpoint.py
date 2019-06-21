@@ -8,13 +8,6 @@ from tensorflow.keras.callbacks import Callback
 import time
 
 
-def eval_and_log_metrics(prefix, y_true, y_pred, epoch):
-    metric_name = 'accuracy'
-    metric = metrics.accuracy_score(y_true, y_pred)
-    mlflow.log_metric(f'{metric_name} {prefix}', metric, step=epoch)
-    return metric
-
-
 class MLflowCheckpoint(Callback):
     """
     based on:
@@ -38,6 +31,10 @@ class MLflowCheckpoint(Callback):
 
         self._best_train_loss = math.inf
         self._best_val_loss = math.inf
+        self._best_train_acc = -math.inf
+        self._best_val_acc = -math.inf
+        self._best_test_acc = -math.inf
+
         self._best_model = None
         self._next_step = 0
         self._epoch_start_at = 0
@@ -59,6 +56,19 @@ class MLflowCheckpoint(Callback):
 
         mlflow.keras.log_model(self._best_model, 'model')
 
+    def get_best_metrics(self):
+        return {
+            'loss': {
+                'train': float(self._best_train_loss),
+                'val': float(self._best_val_loss),
+            },
+            'accuracy': {
+                'train': float(self._best_train_acc),
+                'val': float(self._best_val_acc),
+                'test': float(self._best_test_acc),
+            }
+        }
+
     def on_epoch_begin(self, epoch, logs=None):
         self._epoch_start_at = time.time()
 
@@ -69,9 +79,13 @@ class MLflowCheckpoint(Callback):
         """
         if not logs:
             return
+
         self._next_step = epoch + 1
+
         train_loss = logs['loss']
         val_loss = logs['val_loss']
+        train_acc = logs['acc']
+        val_acc = logs['val_acc']
 
         mlflow.log_metrics({
             f'{self._target_loss} loss train': train_loss,
@@ -86,9 +100,14 @@ class MLflowCheckpoint(Callback):
             # Log the model with mlflow and also evaluate and log on test set.
             self._best_train_loss = train_loss
             self._best_val_loss = val_loss
+            self._best_train_acc = train_acc
+            self._best_val_acc = val_acc
             self._best_model = keras.models.clone_model(self.model)
             self._best_model.set_weights([x.copy() for x in self.model.get_weights()])
             preds = self._best_model.predict(self._test_x)
-            eval_and_log_metrics('test',
-                                 self._test_y,
-                                 np.argmax(preds, axis=1), epoch)
+
+            # evaluate model on test set
+            self._best_test_acc = metrics.accuracy_score(self._test_y,
+                                                         np.argmax(preds, axis=1))
+            mlflow.log_metric(f'{self._target_loss} acc test',
+                              self._best_test_acc, step=epoch)
