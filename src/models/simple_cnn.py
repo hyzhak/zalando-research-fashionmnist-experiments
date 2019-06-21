@@ -101,7 +101,7 @@ class SimpleCNN(luigi.Task):
                 random_state=self.random_seed,
             )
             X_test, y_test = extract_x_and_y(self.input()['test'])
-            best_model = self._train_model(
+            best_model, checkpoint_path = self._train_model(
                 reshape_X_to_2d(X_train), y_train,
                 reshape_X_to_2d(X_valid), y_valid,
                 reshape_X_to_2d(X_test), y_test
@@ -109,6 +109,9 @@ class SimpleCNN(luigi.Task):
 
             with self.output()['model'].open('w') as f:
                 best_model.save(f, overwrite=True)
+
+            # once we store the best model we no longer need checkpoint
+            os.remove(checkpoint_path)
 
             # TODO: store scores
 
@@ -244,7 +247,7 @@ class SimpleCNN(luigi.Task):
             mlflow.log_metric('total_train_time', training_time)
 
             # TODO: remove checkpoints once we save the final model
-        return model
+        return model, model_checkpoint_path
 
     def _predict(self):
         pass
