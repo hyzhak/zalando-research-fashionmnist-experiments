@@ -166,7 +166,14 @@ class SimpleCNN(luigi.Task):
 
             # remove previous log to prevent duplication
             # once I found way to resume training it could make sense to preserve it
+
+            # TODO: sadly sometime it doesn't because TensorFlow Board could cache
+            # logs and if you don't refresh tfb after logs were deleted you will get old logs
             shutil.rmtree(tf_log_dir, ignore_errors=True)
+
+            # so temporal solution - add random tail at the end of path
+            # it would force invalidate logs for tfb
+            tf_log_dir = os.path.join(tf_log_dir, str(int(time.time())))
 
             start = time.time()
             model.fit(
