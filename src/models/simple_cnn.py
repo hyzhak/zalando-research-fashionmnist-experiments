@@ -103,21 +103,16 @@ class SimpleCNN(luigi.Task):
                 random_state=self.random_seed,
             )
             X_test, y_test = extract_x_and_y(self.input()['test'])
-            best_model, checkpoint_path, metrics = self._train_model(
+            checkpoint_path, metrics = self._train_model(
                 reshape_X_to_2d(X_train), y_train,
                 reshape_X_to_2d(X_valid), y_valid,
                 reshape_X_to_2d(X_test), y_test
             )
 
-            # TODO: hm, actually we just need to move checkpoint to the place of target model
+            # we move checkpoint model to the place of target model
             # because it's the best model for the moment
-            with self.output()['model'].open('w') as f:
-                best_model.save(f, overwrite=True)
+            os.rename(checkpoint_path, self.output()['model'].path)
 
-            # once we store the best model we no longer need checkpoint
-            os.remove(checkpoint_path)
-
-            # TODO: store scores
             # store accuracy and loss on train, test, validate sets
             with self.output()['metrics'].open('w') as f:
                 yaml.dump(metrics, f, default_flow_style=False)
@@ -218,7 +213,7 @@ class SimpleCNN(luigi.Task):
             # create needed dirs to store model checkpoint
             output_model = self.output()['model']
             output_model.makedirs()
-            model_checkpoint_path = f'{output_model.path}_tmp'
+            model_checkpoint_path = f'{output_model.path}_checkpoint'
 
             model.fit(
                 train_x, train_y,
@@ -255,7 +250,7 @@ class SimpleCNN(luigi.Task):
 
             metrics = mlflow_logger.get_best_metrics()
 
-        return model, model_checkpoint_path, metrics
+        return model_checkpoint_path, metrics
 
     def _predict(self):
         pass
