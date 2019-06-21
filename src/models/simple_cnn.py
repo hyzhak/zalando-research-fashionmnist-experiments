@@ -1,7 +1,10 @@
 import luigi
 import mlflow
+import os
+import shutil
 from sklearn.model_selection import train_test_split
 from tensorflow import keras
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
 from tensorflow.keras import optimizers
@@ -58,6 +61,11 @@ class SimpleCNN(luigi.Task):
     )
     random_seed = luigi.IntParameter(
         default=12345
+    )
+    # dir where TensorBoard callback will put logs
+    tf_log_dir = luigi.Parameter(
+        default='/var/models/logs/zalando-fashionmnist',
+        significant=False,
     )
 
     def requires(self):
@@ -150,6 +158,16 @@ class SimpleCNN(luigi.Task):
             if self.verbose > 0:
                 model.summary()
 
+            tf_log_dir = os.path.join(
+                self.tf_log_dir,
+                self.model_name,
+                encode_task_to_filename(self)
+            )
+
+            # remove previous log to prevent duplication
+            # once I found way to resume training it could make sense to preserve it
+            shutil.rmtree(tf_log_dir, ignore_errors=True)
+
             start = time.time()
             model.fit(
                 train_x, train_y,
@@ -158,7 +176,16 @@ class SimpleCNN(luigi.Task):
                 verbose=self.verbose,
                 validation_data=(valid_x, valid_y),
                 # TODO: add EarlyStopping, ModelCheckpoint, TensorBoard
-                callbacks=[mlflow_logger]
+                callbacks=[
+                    EarlyStopping(monitor='val_loss', patience=2),
+                    # isn't clear where to store and how would it work with self.output()['model']
+                    # ModelCheckpoint(),
+                    TensorBoard(
+                        log_dir=tf_log_dir,
+                        write_images=True
+                    ),
+                    mlflow_logger
+                ]
             )
             training_time = time.time() - start
             mlflow.log_metric('total_train_time', training_time)
