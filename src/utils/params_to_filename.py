@@ -24,7 +24,7 @@ def params_to_filename(d):
     )
 
 
-def encode_task_to_filename(task):
+def encode_task_to_filename(task, exclude=[]):
     # family = task.get_task_family()
     # encoded_params = params_to_filename(
     #     task.to_str_params(only_significant=True, only_public=True)) or 'default'
@@ -36,6 +36,8 @@ def encode_task_to_filename(task):
     # each value is encoded to string, event when it is dict
     # I'm trying to unwrap dict, because default dict encoding isn't good enough for filename
     for param_name, param_value in params.items():
+        if param_name in exclude:
+            continue
         if isinstance(param_value, str):
             try:
                 param_value = json.loads(param_value)

@@ -30,7 +30,7 @@ class SimpleCNN(luigi.Task):
     # 4) each new model should have separate luigi task
     model_version = 'v1'
 
-    experiment_id = luigi.Parameter(
+    parent_run_id = luigi.Parameter(
         default='',
         significant=False,
     )
@@ -94,8 +94,16 @@ class SimpleCNN(luigi.Task):
 
     def run(self):
         seed_randomness(self.random_seed)
-        with mlflow.start_run(experiment_id=self.experiment_id if self.experiment_id else None,
-                              nested=self.experiment_id is not None) as run:
+        # because each luigi task inside it own worker
+        # we need to simulate nesting parent -> child in case of child run
+        if self.parent_run_id:
+            with mlflow.start_run(run_id=self.parent_run_id):
+                self._run()
+        else:
+            self._run()
+
+    def _run(self):
+        with mlflow.start_run(nested=self.parent_run_id is not None) as run:
             # scores['run_id'] = run.info.run_id
             X_train, X_valid, y_train, y_valid = train_test_split(
                 *extract_x_and_y(self.input()['train']),
