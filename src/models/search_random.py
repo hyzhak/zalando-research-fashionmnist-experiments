@@ -19,6 +19,11 @@ class SearchRandom(luigi.Task):
         default='accuracy',
         description='metric to optimize on accuracy or loss'
     )
+    experiment = luigi.Parameter(
+        default=None,
+        description='ml experiment name',
+        significant=False,
+    )
     max_runs = luigi.IntParameter(
         default=10,
         description='maximum number of runs to evaluate'
@@ -62,6 +67,8 @@ class SearchRandom(luigi.Task):
             with mlflow_output.open('r') as f:
                 parent_run_id = yaml.load(f).get('run_id')
                 print('continue mlflow run:', parent_run_id)
+        elif self.experiment:
+            mlflow.set_experiment(self.experiment)
 
         with mlflow.start_run(run_id=parent_run_id) as run:
             print('run.info', run.info)
