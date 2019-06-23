@@ -4,7 +4,6 @@ import re
 import yaml
 
 from src.utils.params_to_filename import encode_task_to_filename
-from src.utils.seed_randomness import seed_randomness
 
 _reg = re.compile(r'(?!^)(?<!_)([A-Z])')
 

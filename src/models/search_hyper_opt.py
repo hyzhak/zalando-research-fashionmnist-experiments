@@ -2,6 +2,7 @@ import luigi
 from hyperopt import fmin, hp, tpe, rand
 import json
 import numpy as np
+import mlflow
 import pickle
 import yaml
 
@@ -40,7 +41,7 @@ class SearchHyperOpt(MLFlowTask):
         print(f'FILENAME: reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}.pickle')
         return {
             'hyper_opt_runs': luigi.LocalTarget(
-                f'reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}.pickle',
+                f'reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}__runs.pickle',
                 format=luigi.format.Nop
             ),
             'metrics': luigi.LocalTarget(
@@ -57,13 +58,18 @@ class SearchHyperOpt(MLFlowTask):
 
     def _fn(self, x):
         print('# _fn', x)
+        # we can't use params as they are because they can be not hashable
         params_key = get_key_by_params(x)
         hyper_opt_runs = self._get_hyper_opt_runs()
 
         if hyper_opt_runs and params_key in hyper_opt_runs:
-            print('we have right value! ', hyper_opt_runs[params_key])
-            # we can't use params as they are because they can be not hashable
-            return hyper_opt_runs[params_key]
+            res = hyper_opt_runs[params_key]
+            loss = res[self.metric]['val']
+            # in case of accuracy we would like maximize function :)
+            if self.metric == 'accuracy':
+                loss = -loss
+            print('we have right value! ', loss)
+            return loss
 
         print('it seems we got a new value, lets go for a search', x)
         raise NewValueForOptimizer(x)
@@ -115,57 +121,38 @@ class SearchHyperOpt(MLFlowTask):
                 )
 
                 with model_result['metrics'].open('r') as f:
-                    res = yaml.load(f)
-                    loss = res[self.metric]['val']
-                    if self.metric == 'accuracy':
-                        loss = -loss
-                    print('now time to store new loss:', loss)
+                    best_metrics = yaml.load(f)
                     hyper_opt_runs = self._get_hyper_opt_runs() or {}
-                    hyper_opt_runs[get_key_by_params(params)] = loss
+                    hyper_opt_runs[get_key_by_params(params)] = best_metrics
                     with self.output()['hyper_opt_runs'].open('w') as f:
                         pickle.dump(hyper_opt_runs, f)
 
-        print('TODO: store best result :', best)
+        hyper_opt_runs = self._get_hyper_opt_runs() or {}
 
-        # with self.output()['metrics'].open('w') as f:
-        #     yaml.dump()
+        # TODO: hyperopts drops 'optimizer_props' for some reasons
+        # need to protect it
+        best_metrics = hyper_opt_runs.get(get_key_by_params({
+            'optimizer_props': best
+        }))
 
-        #
-        # # TODO: simple duplicate search_random (could I reuse code?)
-        # best_run = None
-        # best_val_train = -math.inf
-        # best_val_valid = -math.inf
-        # best_val_test = -math.inf
-        #
-        # for model_output in tasks:
-        #     # TODO: get the score and compare with the best
-        #     with model_output['metrics'].open('r') as f:
-        #         res = yaml.load(f)
-        #         # TODO: we don't have yet validation set (should add)
-        #         new_val_valid = res[self.metric]['val']
-        #
-        #         # TODO: in case of accuracy it is "<"
-        #         # in case of loss it should be ">"
-        #         if best_val_valid < new_val_valid:
-        #             best_run = res.get('run_id', None)
-        #             best_val_train = res[self.metric]['train']
-        #             best_val_valid = new_val_valid
-        #             best_val_test = res[self.metric]['test']
-        #
-        # metrics = {
-        #     f'train_{self.metric}': float(best_val_train),
-        #     f'val_{self.metric}': float(best_val_valid),
-        #     f'test_{self.metric}': float(best_val_test),
-        # }
-        # mlflow.set_tag('best_run', best_run)
-        # mlflow.log_metrics(metrics)
-        # # TODO: maybe it also make sense to duplicate the best params in experiment?
-        #
-        # with self.output()['metrics'].open('w') as f:
-        #     yaml.dump({
-        #         'metrics': metrics,
-        #         'best_run_id': best_run,
-        #     }, f, default_flow_style=False)
+        if best_metrics is None:
+            raise Exception('it seems we do not have any runs here')
+
+        metrics = {
+            f'train_{self.metric}': float(best_metrics[self.metric]['train']),
+            f'val_{self.metric}': float(best_metrics[self.metric]['val']),
+            f'test_{self.metric}': float(best_metrics[self.metric]['test']),
+        }
+
+        mlflow.log_metrics(metrics)
+
+        # child task could be mlflow_task so we can get run_id from its 'mlflow' state
+        best_run = best_metrics.get('run_id', None)
+        if best_run:
+            mlflow.set_tag('best_run', best_run)
+
+        with self.output()['metrics'].open('w') as f:
+            yaml.dump(best_metrics, f, default_flow_style=False)
 
 
 class NewValueForOptimizer(Exception):

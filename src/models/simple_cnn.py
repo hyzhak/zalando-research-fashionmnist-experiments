@@ -104,7 +104,6 @@ class SimpleCNN(luigi.Task):
 
     def _run(self):
         with mlflow.start_run(nested=self.parent_run_id is not None) as run:
-            # scores['run_id'] = run.info.run_id
             X_train, X_valid, y_train, y_valid = train_test_split(
                 *extract_x_and_y(self.input()['train']),
                 test_size=self.valid_size,
