@@ -38,7 +38,6 @@ class SearchHyperOpt(MLFlowTask):
         optimizer_name = 'hyper_opt'
         filename = encode_task_to_filename(self, ['model_name'])
         hyper_opt_runs_filename = encode_task_to_filename(self)
-        print(f'FILENAME: reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}.pickle')
         return {
             'hyper_opt_runs': luigi.LocalTarget(
                 f'reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}__runs.pickle',
@@ -63,8 +62,8 @@ class SearchHyperOpt(MLFlowTask):
         hyper_opt_runs = self._get_hyper_opt_runs()
 
         if hyper_opt_runs and params_key in hyper_opt_runs:
-            res = hyper_opt_runs[params_key]
-            loss = res[self.metric]['val']
+            metrics = hyper_opt_runs[params_key]['metrics']
+            loss = metrics[self.metric]['val']
             # in case of accuracy we would like maximize function :)
             if self.metric == 'accuracy':
                 loss = -loss
@@ -75,7 +74,6 @@ class SearchHyperOpt(MLFlowTask):
         raise NewValueForOptimizer(x)
 
     def ml_run(self, run_id=None):
-        print('# ml_run', run_id)
         seed_randomness(self.random_seed)
 
         params_space = {
@@ -120,39 +118,51 @@ class SearchHyperOpt(MLFlowTask):
                     **params,
                 )
 
+                model_run_id = None
+                if 'ml_flow' in model_result:
+                    with model_result['ml_flow'].open('r') as f:
+                        model_run_id = yaml.load(f).get('run_id')
+
                 with model_result['metrics'].open('r') as f:
-                    best_metrics = yaml.load(f)
+                    model_metrics = yaml.load(f)
                     hyper_opt_runs = self._get_hyper_opt_runs() or {}
-                    hyper_opt_runs[get_key_by_params(params)] = best_metrics
+                    hyper_opt_runs[get_key_by_params(params)] = {
+                        'metrics': model_metrics,
+                        'run_id': model_run_id,
+                    }
                     with self.output()['hyper_opt_runs'].open('w') as f:
                         pickle.dump(hyper_opt_runs, f)
+
+        print('we got the best params:', best)
 
         hyper_opt_runs = self._get_hyper_opt_runs() or {}
 
         # TODO: hyperopts drops 'optimizer_props' for some reasons
         # need to protect it
-        best_metrics = hyper_opt_runs.get(get_key_by_params({
+        best_model_state = hyper_opt_runs.get(get_key_by_params({
             'optimizer_props': best
         }))
 
-        if best_metrics is None:
+        if best_model_state is None:
             raise Exception('it seems we do not have any runs here')
 
+        # TODO: format of the best model metrics should look the same
+        # as metrics of experiments
         metrics = {
-            f'train_{self.metric}': float(best_metrics[self.metric]['train']),
-            f'val_{self.metric}': float(best_metrics[self.metric]['val']),
-            f'test_{self.metric}': float(best_metrics[self.metric]['test']),
+            f'train_{self.metric}': float(best_model_state['metrics'][self.metric]['train']),
+            f'val_{self.metric}': float(best_model_state['metrics'][self.metric]['val']),
+            f'test_{self.metric}': float(best_model_state['metrics'][self.metric]['test']),
         }
 
         mlflow.log_metrics(metrics)
 
         # child task could be mlflow_task so we can get run_id from its 'mlflow' state
-        best_run = best_metrics.get('run_id', None)
+        best_run = best_model_state.get('run_id', None)
         if best_run:
             mlflow.set_tag('best_run', best_run)
 
         with self.output()['metrics'].open('w') as f:
-            yaml.dump(best_metrics, f, default_flow_style=False)
+            yaml.dump(best_model_state, f, default_flow_style=False)
 
 
 class NewValueForOptimizer(Exception):

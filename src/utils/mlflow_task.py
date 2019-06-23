@@ -52,9 +52,11 @@ class MLFlowTask(luigi.Task):
             with mlflow.start_run(
                     run_id=self.parent_run_id
             ):
-                yield from self._run()
+                print('MLFLOW: before come to parent run', self.parent_run_id)
+                yield from safe_iterator(self._run())
+                print('MLFLOW: after parent run', self.parent_run_id)
         else:
-            yield from self._run()
+            yield from safe_iterator(self._run())
 
     def _run(self):
         mlflow_output = self.output()['mlflow']
@@ -62,11 +64,14 @@ class MLFlowTask(luigi.Task):
         if mlflow_output.exists():
             with mlflow_output.open('r') as f:
                 run_id = yaml.load(f).get('run_id')
-                print('continue mlflow run:', run_id)
-        elif self.experiment:
+                print('MLFLOW: continue mlflow run:', run_id)
+
+        if self.experiment:
+            # TODO: maybe we should get experiment from parent run?
             mlflow.set_experiment(self.experiment)
 
-        print('run_id', run_id)
+        print('MLFLOW: active_run() mlflow_task', mlflow.active_run())
+
         with mlflow.start_run(
                 run_id=run_id,
                 nested=self.parent_run_id != ''
@@ -75,7 +80,7 @@ class MLFlowTask(luigi.Task):
                 yaml.dump({
                     'run_id': run.info.run_id
                 }, f, default_flow_style=False)
-            yield from self.ml_run(run.info.run_id)
+            yield from safe_iterator(self.ml_run(run.info.run_id))
 
     def ml_run(self, run_id):
         """
@@ -83,3 +88,12 @@ class MLFlowTask(luigi.Task):
         :return:
         """
         raise NotImplementedError()
+
+
+def safe_iterator(i):
+    """
+    some methods doesn't return any
+    :param i:
+    :return:
+    """
+    return i or []

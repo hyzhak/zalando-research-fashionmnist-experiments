@@ -16,11 +16,12 @@ from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
 from src.models.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import extract_x_and_y, reshape_X_to_2d
+from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
 
 
-class SimpleCNN(luigi.Task):
+class SimpleCNN(MLFlowTask):
     model_name = 'simple_cnn'
     # TODO: how would I know which model is logged in luigi and mlflow?
     # 1) I can increase version each time I make changes in structure
@@ -30,10 +31,6 @@ class SimpleCNN(luigi.Task):
     # 4) each new model should have separate luigi task
     model_version = 'v1'
 
-    parent_run_id = luigi.Parameter(
-        default='',
-        significant=False,
-    )
     verbose = luigi.IntParameter(
         default=1,
         significant=False
@@ -64,6 +61,7 @@ class SimpleCNN(luigi.Task):
     random_seed = luigi.IntParameter(
         default=12345
     )
+
     # dir where TensorBoard callback will put logs
     tf_log_dir = luigi.Parameter(
         default='/var/models/logs/zalando-fashionmnist',
@@ -76,11 +74,11 @@ class SimpleCNN(luigi.Task):
             'train': ExternalTrainSet(),
         }
 
-    def output(self):
+    def ml_output(self):
         # TODO: ideally we should check whether we have this model and score on mlflow
         # if we don't have train and evaluate
         # how could I get run id because on task parameters?
-        filename = encode_task_to_filename(self)
+        filename = encode_task_to_filename(self, ['model_name'])
 
         return {
             'model': luigi.LocalTarget(
@@ -92,37 +90,29 @@ class SimpleCNN(luigi.Task):
             ),
         }
 
-    def run(self):
+    def ml_run(self, run_id=None):
+        print('MLFLOW: active_run() simple_cnn', mlflow.active_run())
+
         seed_randomness(self.random_seed)
-        # because each luigi task inside it own worker
-        # we need to simulate nesting parent -> child in case of child run
-        if self.parent_run_id:
-            with mlflow.start_run(run_id=self.parent_run_id):
-                self._run()
-        else:
-            self._run()
+        X_train, X_valid, y_train, y_valid = train_test_split(
+            *extract_x_and_y(self.input()['train']),
+            test_size=self.valid_size,
+            random_state=self.random_seed,
+        )
+        X_test, y_test = extract_x_and_y(self.input()['test'])
+        checkpoint_path, metrics = self._train_model(
+            reshape_X_to_2d(X_train), y_train,
+            reshape_X_to_2d(X_valid), y_valid,
+            reshape_X_to_2d(X_test), y_test
+        )
 
-    def _run(self):
-        with mlflow.start_run(nested=self.parent_run_id is not None) as run:
-            X_train, X_valid, y_train, y_valid = train_test_split(
-                *extract_x_and_y(self.input()['train']),
-                test_size=self.valid_size,
-                random_state=self.random_seed,
-            )
-            X_test, y_test = extract_x_and_y(self.input()['test'])
-            checkpoint_path, metrics = self._train_model(
-                reshape_X_to_2d(X_train), y_train,
-                reshape_X_to_2d(X_valid), y_valid,
-                reshape_X_to_2d(X_test), y_test
-            )
+        # we move checkpoint model to the place of target model
+        # because it's the best model for the moment
+        os.rename(checkpoint_path, self.output()['model'].path)
 
-            # we move checkpoint model to the place of target model
-            # because it's the best model for the moment
-            os.rename(checkpoint_path, self.output()['model'].path)
-
-            # store accuracy and loss on train, test, validate sets
-            with self.output()['metrics'].open('w') as f:
-                yaml.dump(metrics, f, default_flow_style=False)
+        # store accuracy and loss on train, test, validate sets
+        with self.output()['metrics'].open('w') as f:
+            yaml.dump(metrics, f, default_flow_style=False)
 
     def _train_model(self,
                      train_x, train_y,
