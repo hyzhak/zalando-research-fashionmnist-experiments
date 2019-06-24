@@ -122,6 +122,14 @@ class SimpleCNN(MLFlowTask):
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
                               self.metrics) as mlflow_logger:
+
+            # FIXME:
+            # when run simple_cnn under ax got error
+            # "Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR"
+            #
+            # this solution helped from https://github.com/tensorflow/tensorflow/issues/24496#issuecomment-500605481
+            #
+            # TODO: can I move it on the top of file?
             config = tf.ConfigProto()
             config.gpu_options.allow_growth = True
             tf.keras.backend.set_session(tf.Session(config=config))
