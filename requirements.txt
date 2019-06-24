@@ -2,10 +2,14 @@
 -e .
 
 # external requirements
+ax-platform # adaptive experimentation platform
 awscli
 click
 coverage
+hyperopt # Distributed Asynchronous Hyperparameter Optimization in Python
 flake8
+luigi # helps you build complex pipelines of batch jobs. It handles dependency resolution, workflow management, visualization etc. It also comes with Hadoop support built in.
+mlflow # platform for the machine learning lifecycle
 pandas
 python-dotenv>=0.5.1
 sklearn
