@@ -1,19 +1,9 @@
 import luigi
 import mlflow
-import re
 import yaml
 
 from src.utils.params_to_filename import encode_task_to_filename
-
-_reg = re.compile(r'(?!^)(?<!_)([A-Z])')
-
-
-def camel_to_snake(s):
-    """
-    Is it ironic that this function is written in camel case, yet it
-    converts to snake case? hmm..
-    """
-    return _reg.sub(r'_\1', s).lower()
+from src.utils.snake import get_class_name_as_snake
 
 
 class MLFlowTask(luigi.Task):
@@ -30,13 +20,26 @@ class MLFlowTask(luigi.Task):
 
     def output(self):
         filename = encode_task_to_filename(self)
-        class_name = camel_to_snake(type(self).__name__)
+        class_name = get_class_name_as_snake(self)
         return {
             'mlflow': luigi.LocalTarget(
                 f'reports/mlflow/{class_name}/{filename}'
             ),
             **self.ml_output(),
         }
+
+    @staticmethod
+    def get_run_id_from_result(model_result):
+        """
+        get mlflow run_id from MLFlowTask result
+
+        :param model_result:
+        :return:
+        """
+        if 'ml_flow' not in model_result:
+            return None
+        with model_result['ml_flow'].open('r') as f:
+            return yaml.load(f).get('run_id')
 
     def ml_output(self):
         """

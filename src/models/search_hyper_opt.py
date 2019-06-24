@@ -7,9 +7,18 @@ import pickle
 import yaml
 
 from src.models import get_model_task_by_name
+from src.utils.metrics import should_minimize
 from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
+
+"""
+TODO:
+store artifact of Any search:
+- path of search (sequence of search points)
+- heatmap of search space (in case of 2D)
+  - Does it make sense to use PCA to reduce dimension to 2D in case of bigger dims
+"""
 
 
 class SearchHyperOpt(MLFlowTask):
@@ -63,12 +72,12 @@ class SearchHyperOpt(MLFlowTask):
 
         if hyper_opt_runs and params_key in hyper_opt_runs:
             metrics = hyper_opt_runs[params_key]['metrics']
-            loss = metrics[self.metric]['val']
+            score = metrics[self.metric]['val']
             # in case of accuracy we would like maximize function :)
-            if self.metric == 'accuracy':
-                loss = -loss
-            print('we have right value! ', loss)
-            return loss
+            if not should_minimize(self.metric):
+                score = -score
+            print('we have right value! ', score)
+            return score
 
         print('it seems we got a new value, lets go for a search', x)
         raise NewValueForOptimizer(x)
@@ -118,10 +127,7 @@ class SearchHyperOpt(MLFlowTask):
                     **params,
                 )
 
-                model_run_id = None
-                if 'ml_flow' in model_result:
-                    with model_result['ml_flow'].open('r') as f:
-                        model_run_id = yaml.load(f).get('run_id')
+                model_run_id = self.get_run_id_from_result(model_result)
 
                 with model_result['metrics'].open('r') as f:
                     model_metrics = yaml.load(f)

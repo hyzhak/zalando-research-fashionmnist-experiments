@@ -122,7 +122,12 @@ class SimpleCNN(MLFlowTask):
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
                               self.metrics) as mlflow_logger:
+            config = tf.ConfigProto()
+            config.gpu_options.allow_growth = True
+            tf.keras.backend.set_session(tf.Session(config=config))
+
             # TODO: add batch normalization and dropout
+
             input_shape = (28, 28, 1)
 
             model = keras.Sequential([
