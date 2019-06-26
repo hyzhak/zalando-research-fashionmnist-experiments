@@ -14,7 +14,7 @@ import yaml
 
 from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
-from src.models.mlflow_checkpoint import MLflowCheckpoint
+from src.models.cnn.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import extract_x_and_y, reshape_X_to_2d
 from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import encode_task_to_filename
@@ -37,7 +37,7 @@ class SimpleCNN(MLFlowTask):
     )
     batch_size = luigi.IntParameter(
         default=16,
-        description='Batch size passed to the learning algo.'
+        description='Batch size passed to the learning algorithm.'
     )
     metrics = luigi.Parameter(
         default='accuracy'
@@ -57,6 +57,9 @@ class SimpleCNN(MLFlowTask):
     )
     valid_size = luigi.FloatParameter(
         default=0.1
+    )
+    train_size = luigi.FloatParameter(
+        default=None
     )
     random_seed = luigi.IntParameter(
         default=12345
@@ -94,11 +97,28 @@ class SimpleCNN(MLFlowTask):
         print('MLFLOW: active_run() simple_cnn', mlflow.active_run())
 
         seed_randomness(self.random_seed)
-        X_train, X_valid, y_train, y_valid = train_test_split(
-            *extract_x_and_y(self.input()['train']),
-            test_size=self.valid_size,
-            random_state=self.random_seed,
-        )
+
+        train_size = self.train_size
+        if train_size is not None:
+            if train_size >= 1.0:
+                train_size = int(train_size)
+
+            X_train, X_valid, y_train, y_valid = train_test_split(
+                *extract_x_and_y(self.input()['train']),
+                train_size=train_size,
+                random_state=self.random_seed,
+            )
+        else:
+            valid_size = self.valid_size
+            if valid_size >= 1.0:
+                valid_size = int(valid_size)
+
+            X_train, X_valid, y_train, y_valid = train_test_split(
+                *extract_x_and_y(self.input()['train']),
+                test_size=valid_size,
+                random_state=self.random_seed,
+            )
+
         X_test, y_test = extract_x_and_y(self.input()['test'])
         checkpoint_path, metrics = self._train_model(
             reshape_X_to_2d(X_train), y_train,
@@ -122,7 +142,6 @@ class SimpleCNN(MLFlowTask):
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
                               self.metrics) as mlflow_logger:
-
             # FIXME:
             # when run simple_cnn under ax got error
             # "Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR"
@@ -262,10 +281,6 @@ class SimpleCNN(MLFlowTask):
 
         return model_checkpoint_path, metrics
 
-    def _predict(self):
-        pass
-
 
 if __name__ == '__main__':
-    # with mlflow.start_run():
     luigi.run()

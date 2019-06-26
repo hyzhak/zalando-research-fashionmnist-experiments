@@ -6,7 +6,7 @@ import mlflow
 import pickle
 import yaml
 
-from src.models import get_model_task_by_name
+from src.models.get_model_task_by_name import get_model_task_by_name
 from src.utils.metrics import should_minimize
 from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import encode_task_to_filename

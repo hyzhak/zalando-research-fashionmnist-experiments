@@ -5,7 +5,7 @@ import numpy as np
 import random as rn
 import yaml
 
-from src.models import get_model_task_by_name
+from src.models.get_model_task_by_name import get_model_task_by_name
 from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
 
