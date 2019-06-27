@@ -58,7 +58,7 @@ class SimpleCNN(MLFlowTask):
     valid_size = luigi.FloatParameter(
         default=0.1
     )
-    train_size = luigi.FloatParameter(
+    train_size = luigi.OptionalParameter(
         default=None
     )
     random_seed = luigi.IntParameter(
@@ -100,6 +100,7 @@ class SimpleCNN(MLFlowTask):
 
         train_size = self.train_size
         if train_size is not None:
+            train_size = float(train_size)
             if train_size >= 1.0:
                 train_size = int(train_size)
 
