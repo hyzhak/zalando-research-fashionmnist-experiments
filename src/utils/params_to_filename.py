@@ -24,13 +24,13 @@ def params_to_filename(d):
     )
 
 
-def encode_task_to_filename(task, exclude=[]):
-    # family = task.get_task_family()
-    # encoded_params = params_to_filename(
-    #     task.to_str_params(only_significant=True, only_public=True)) or 'default'
-
-    # return '__'.join((family, encoded_params))
-
+def get_params_of_task(task, exclude=[]):
+    """
+    for some reasons luigi encode dict params to json. we revert it here
+    :param task:
+    :param exclude:
+    :return:
+    """
     # undo encoding of dicts to string
     params = task.to_str_params(only_significant=True, only_public=True)
     # each value is encoded to string, event when it is dict
@@ -44,7 +44,17 @@ def encode_task_to_filename(task, exclude=[]):
                 params[param_name] = param_value
             except:
                 pass
+    return params
 
+
+def encode_task_to_filename(task, exclude=[]):
+    # family = task.get_task_family()
+    # encoded_params = params_to_filename(
+    #     task.to_str_params(only_significant=True, only_public=True)) or 'default'
+
+    # return '__'.join((family, encoded_params))
+
+    # undo encoding of dicts to string
     return params_to_filename(
-        params
+        get_params_of_task(task, exclude)
     ) or 'default'

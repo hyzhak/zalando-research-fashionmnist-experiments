@@ -16,8 +16,9 @@ from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
 from src.models.cnn.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import extract_x_and_y, reshape_X_to_2d
+from src.utils.flatten import flatten
 from src.utils.mlflow_task import MLFlowTask
-from src.utils.params_to_filename import encode_task_to_filename
+from src.utils.params_to_filename import get_params_of_task, encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
 
 
@@ -210,7 +211,10 @@ class SimpleCNN(MLFlowTask):
 
             # log model params to mlflow
             mlflow.log_param('model_name', self.model_name)
-            mlflow.log_params(self.to_str_params(only_significant=True, only_public=True))
+
+            # for the moment mlflow doesn't support nested params
+            # so we need to flatten them
+            mlflow.log_params(flatten(get_params_of_task(self)))
             mlflow.log_param('num_of_model_params', model.count_params())
 
             if self.verbose > 0:
