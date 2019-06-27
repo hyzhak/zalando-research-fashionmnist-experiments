@@ -3,13 +3,13 @@ from hyperopt import fmin, hp, tpe, rand
 import json
 import numpy as np
 import mlflow
+import os
 import pickle
 import yaml
 
 from src.models.get_model_task_by_name import get_model_task_by_name
 from src.utils.metrics import should_minimize
 from src.utils.mlflow_task import MLFlowTask
-from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
 
 """
@@ -43,17 +43,14 @@ class SearchHyperOpt(MLFlowTask):
         description='seed for the random generator'
     )
 
-    def ml_output(self):
-        optimizer_name = 'hyper_opt'
-        filename = encode_task_to_filename(self, ['model_name'])
-        hyper_opt_runs_filename = encode_task_to_filename(self)
+    def ml_output(self, output_dir):
         return {
             'hyper_opt_runs': luigi.LocalTarget(
-                f'reports/optimizers/{optimizer_name}/{hyper_opt_runs_filename}__runs.pickle',
+                os.path.join(output_dir, 'hyperopt_runs.pickle'),
                 format=luigi.format.Nop
             ),
             'metrics': luigi.LocalTarget(
-                f'reports/metrics/{self.model_name}/best_search_hyperopt__{filename}.yaml'
+                os.path.join(output_dir, 'metrics.yaml')
             )
         }
 

@@ -1,13 +1,13 @@
 from ax.service.ax_client import AxClient
 from ax.storage.sqa_store.structs import DBSettings
 import luigi
+from os import path
 import pickle
 import yaml
 
 from src.models.get_model_task_by_name import get_model_task_by_name
 from src.utils.metrics import should_minimize
 from src.utils.mlflow_task import MLFlowTask
-from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.seed_randomness import seed_randomness
 from src.utils.snake import get_class_name_as_snake
 
@@ -34,15 +34,13 @@ class SearchAx(MLFlowTask):
         description='seed for the random generator'
     )
 
-    def ml_output(self):
-        filename = encode_task_to_filename(self, ['model_name'])
-        class_name = get_class_name_as_snake(self)
+    def ml_output(self, output_dir):
         return {
             'metrics': luigi.LocalTarget(
-                f'reports/metrics/{self.model_name}/{class_name}/{filename}.yaml'
+                path.join(output_dir, 'metrics.yml')
             ),
             'ax_experiment': luigi.LocalTarget(
-                f'reports/metrics/{self.model_name}/{class_name}/{filename}.pickle',
+                path.join(output_dir, 'ax_experiments.pickle'),
                 format=luigi.format.Nop
             )
         }
@@ -63,15 +61,15 @@ class SearchAx(MLFlowTask):
             {
                 'name': 'lr',
                 'type': 'range',
-                'bounds': [0.00001, 0.001],
-                'value_type': 'float',
-                # 'log_scale': True,
+                'bounds': [1e-6, 0.4],
+                # 'value_type': 'float',
+                'log_scale': True,
             },
             {
                 'name': 'beta_1',
                 'type': 'range',
                 'bounds': [.0, 0.9999],
-                'value_type': 'float',
+                # 'value_type': 'float',
                 # 'log_scale': True,
             },
             # {

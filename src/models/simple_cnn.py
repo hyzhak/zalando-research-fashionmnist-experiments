@@ -77,19 +77,14 @@ class SimpleCNN(MLFlowTask):
             'train': ExternalTrainSet(),
         }
 
-    def ml_output(self):
-        # TODO: ideally we should check whether we have this model and score on mlflow
-        # if we don't have train and evaluate
-        # how could I get run id because on task parameters?
-        filename = encode_task_to_filename(self, ['model_name'])
-
+    def ml_output(self, output_dir):
         return {
             'model': luigi.LocalTarget(
-                f'models/{self.model_name}/{filename}.h5',
+                os.path.join(output_dir, 'model.h5'),
                 format=luigi.format.Nop
             ),
             'metrics': luigi.LocalTarget(
-                f'reports/metrics/{self.model_name}/{filename}'
+                os.path.join(output_dir, 'metrics.yml')
             ),
         }
 

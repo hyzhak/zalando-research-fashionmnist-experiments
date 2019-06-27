@@ -1,4 +1,5 @@
 import luigi
+from os import path
 import mlflow
 import yaml
 
@@ -20,13 +21,15 @@ class MLFlowTask(luigi.Task):
     )
 
     def output(self):
-        filename = encode_task_to_filename(self)
+        encoded_params = encode_task_to_filename(self)
         class_name = get_class_name_as_snake(self)
+        # for the moment mlflow task does output only for models
+        output_dir = path.join('models', class_name, encoded_params)
         return {
             'mlflow': luigi.LocalTarget(
-                f'reports/mlflow/{class_name}/{filename}'
+                path.join(output_dir, 'mlflow.yml')
             ),
-            **self.ml_output(),
+            **self.ml_output(output_dir),
         }
 
     @staticmethod
@@ -39,11 +42,13 @@ class MLFlowTask(luigi.Task):
         """
         if 'ml_flow' not in model_result:
             return None
+
         with model_result['ml_flow'].open('r') as f:
             return yaml.load(f).get('run_id')
 
-    def ml_output(self):
+    def ml_output(self, output_dir):
         """
+        :param output_dir:
         should be overwritten by successor
         :return:
         """
