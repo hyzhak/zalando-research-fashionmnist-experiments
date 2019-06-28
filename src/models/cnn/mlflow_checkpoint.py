@@ -25,10 +25,6 @@ class MLflowCheckpoint(Callback):
         self._test_y = test_y
         self._target_loss = loss
 
-        self.train_loss = f'{loss} train'
-        self.val_loss = f'{loss} val'
-        self.test_loss = f'{loss} test'
-
         self._best_train_loss = math.inf
         self._best_val_loss = math.inf
         self._best_train_acc = -math.inf
@@ -36,6 +32,7 @@ class MLflowCheckpoint(Callback):
         self._best_test_acc = -math.inf
 
         self._best_model = None
+        self._epoch_train_time_sum = 0
         self._next_step = 0
         self._epoch_start_at = 0
 
@@ -49,11 +46,13 @@ class MLflowCheckpoint(Callback):
         if not self._best_model:
             raise Exception('Failed to build any model')
 
-        mlflow.log_metrics({
-            f'{self._target_loss} loss train': self._best_train_loss,
-            f'{self._target_loss} loss val': self._best_val_loss,
-        }, step=self._next_step)
+        # do we really need it?
+        # mlflow.log_metrics({
+        #     f'loss.train': self._best_train_loss,
+        #     f'loss.val': self._best_val_loss,
+        # }, step=self._next_step)
 
+        # log the best model
         mlflow.keras.log_model(self._best_model, 'model')
 
     def get_best_metrics(self):
@@ -66,6 +65,10 @@ class MLflowCheckpoint(Callback):
                 'train': float(self._best_train_acc),
                 'val': float(self._best_val_acc),
                 'test': float(self._best_test_acc),
+            },
+            'train_time': {
+                'epoch': self._epoch_train_time_sum / self._next_step,
+                'total': self._epoch_train_time_sum
             }
         }
 
@@ -86,13 +89,16 @@ class MLflowCheckpoint(Callback):
         val_loss = logs['val_loss']
         train_acc = logs['acc']
         val_acc = logs['val_acc']
+        epoch_train_time = time.time() - self._epoch_start_at
+
+        self._epoch_train_time_sum += epoch_train_time
 
         mlflow.log_metrics({
-            f'{self._target_loss} loss train': train_loss,
-            f'{self._target_loss} loss val': val_loss,
-            f'{self._target_loss} acc train': logs['acc'],
-            f'{self._target_loss} acc val': logs['val_acc'],
-            f'epoch train time': time.time() - self._epoch_start_at
+            f'loss.train': train_loss,
+            f'loss.val': val_loss,
+            f'accuracy.train': logs['acc'],
+            f'accuracy.val': logs['val_acc'],
+            f'train_time.epoch': epoch_train_time
         }, step=epoch)
 
         if val_loss < self._best_val_loss:
@@ -109,5 +115,5 @@ class MLflowCheckpoint(Callback):
             # evaluate model on test set
             self._best_test_acc = metrics.accuracy_score(self._test_y,
                                                          np.argmax(preds, axis=1))
-            mlflow.log_metric(f'{self._target_loss} acc test',
+            mlflow.log_metric(f'accuracy.test',
                               self._best_test_acc, step=epoch)

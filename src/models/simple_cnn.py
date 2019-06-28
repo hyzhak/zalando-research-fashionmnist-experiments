@@ -80,12 +80,15 @@ class SimpleCNN(MLFlowTask):
 
     def ml_output(self, output_dir):
         return {
+            'metrics': luigi.LocalTarget(
+                os.path.join(output_dir, 'metrics.yml')
+            ),
             'model': luigi.LocalTarget(
                 os.path.join(output_dir, 'model.h5'),
                 format=luigi.format.Nop
             ),
-            'metrics': luigi.LocalTarget(
-                os.path.join(output_dir, 'metrics.yml')
+            'params': luigi.LocalTarget(
+                os.path.join(output_dir, 'params.yml')
             ),
         }
 
@@ -214,8 +217,11 @@ class SimpleCNN(MLFlowTask):
 
             # for the moment mlflow doesn't support nested params
             # so we need to flatten them
-            mlflow.log_params(flatten(get_params_of_task(self)))
-            mlflow.log_param('num_of_model_params', model.count_params())
+            params = get_params_of_task(self)
+            mlflow.log_params(flatten(params))
+            with self.output()['params'].open('w') as f:
+                yaml.dump(params, f, default_flow_style=False)
+            mlflow.log_param('model.num_of_params', model.count_params())
 
             if self.verbose > 0:
                 model.summary()
@@ -275,7 +281,7 @@ class SimpleCNN(MLFlowTask):
                 ]
             )
             training_time = time.time() - start
-            mlflow.log_metric('total_train_time', training_time)
+            mlflow.log_metric('train_time.total', training_time)
 
             metrics = mlflow_logger.get_best_metrics()
 

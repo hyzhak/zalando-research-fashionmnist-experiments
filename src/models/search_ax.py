@@ -1,13 +1,16 @@
 from ax.service.ax_client import AxClient
 from ax.storage.sqa_store.structs import DBSettings
 import luigi
+import mlflow
 from os import path
 import pickle
 import yaml
 
 from src.models.get_model_task_by_name import get_model_task_by_name
-from src.utils.metrics import should_minimize
+from src.utils.flatten import flatten
+from src.utils.metrics import is_better_score, should_minimize
 from src.utils.mlflow_task import MLFlowTask
+from src.utils.params_to_filename import get_params_of_task
 from src.utils.seed_randomness import seed_randomness
 from src.utils.snake import get_class_name_as_snake
 
@@ -17,8 +20,8 @@ class SearchAx(MLFlowTask):
         default='simple_cnn',
         description='model name (e.g. logistic_regression, simple_cnn)'
     )
-    algo = luigi.Parameter(
-        default='',
+    algo = luigi.OptionalParameter(
+        default=None,
         description='Optimizer algorithm.'
     )
     metric = luigi.Parameter(
@@ -56,12 +59,16 @@ class SearchAx(MLFlowTask):
     def ml_run(self, run_id=None):
         seed_randomness(self.random_seed)
 
+        mlflow.log_params(flatten(get_params_of_task(self)))
+
+        total_training_time = 0
+
         # should land to 'optimizer_props'
         params_space = [
             {
                 'name': 'lr',
                 'type': 'range',
-                'bounds': [1e-6, 0.4],
+                'bounds': [1e-6, 0.008],
                 # 'value_type': 'float',
                 'log_scale': True,
             },
@@ -149,29 +156,48 @@ class SearchAx(MLFlowTask):
 
             with model_result['metrics'].open('r') as f:
                 model_metrics = yaml.load(f)
-                model_score = model_metrics[self.metric]['val']
+                model_score_mean = model_metrics[self.metric]['val']
+                # TODO: we might know it :/
+                model_score_error = 0.0
+                total_training_time += model_metrics['train_time']['total']
+
+            with model_result['params'].open('r') as f:
+                model_params = yaml.load(f)
 
             print('AX: complete trial:', trial_index)
 
             ax.complete_trial(
                 trial_index=trial_index,
-                raw_data=model_score  # {
-                #     'score': model_score,
-                #     'run_id': model_run_id,
-                # }
+                raw_data={
+                    'score': (model_score_mean, model_score_error)
+                },
+                metadata={
+                    'metrics': model_metrics,
+                    'params': model_params,
+                    'run_id': model_run_id,
+                }
             )
 
-        best_parameters, values = ax.get_best_parameters()
-        means, covariances = values
+        best_parameters, _ = ax.get_best_parameters()
 
-        # TODO: store results
-        print('TODO: store score')
+        mlflow.log_metric('train_time.total', total_training_time)
+
         print('best params', best_parameters)
-        print('best means', means)
-        print('best covariances', covariances)
 
-        # TODO: store plots as mlflow artifcats
+        best_trial = get_best_trial(experiment, self.metric)
+
+        mlflow.log_metrics(flatten(best_trial.run_metadata['metrics']))
+        mlflow.log_params(flatten(best_trial.run_metadata['params']))
+
+        # TODO: store plots as mlflow artifacts
         # https://ax.dev/tutorials/gpei_hartmann_service.html#6.-Plot-the-response-surface-and-optimization-trace
+
+
+def get_best_trial(experiment, metric):
+    dat = experiment.fetch_data()
+    objective_rows = dat.df.loc[dat.df['metric_name'] == 'score']
+    best_idx = objective_rows["mean"].idxmin() if should_minimize(metric) else objective_rows["mean"].idxmax()
+    return experiment.trials[best_idx]
 
 
 def get_last_unfinished_params(ax):
