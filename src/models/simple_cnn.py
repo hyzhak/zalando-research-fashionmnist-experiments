@@ -12,8 +12,10 @@ from tensorflow.keras import optimizers
 import time
 import yaml
 
+from src.data.external_label_titles import ExternalLabelTitles
 from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
+from src.models.cnn.log_confusion_matrix import LogConfusionMatrix
 from src.models.cnn.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import extract_x_and_y, reshape_X_to_2d
 from src.utils.flatten import flatten
@@ -64,6 +66,10 @@ class SimpleCNN(MLFlowTask):
     )
     random_seed = luigi.IntParameter(
         default=12345
+    )
+    log_confusion_matrix = luigi.BoolParameter(
+        default=True,
+        significant=False,
     )
 
     # dir where TensorBoard callback will put logs
@@ -119,11 +125,18 @@ class SimpleCNN(MLFlowTask):
                 random_state=self.random_seed,
             )
 
+        labels = None
+        if self.log_confusion_matrix:
+            labels_input = yield ExternalLabelTitles()
+            with labels_input.open('r') as f:
+                labels = yaml.load(f)
+
         X_test, y_test = extract_x_and_y(self.input()['test'])
         checkpoint_path, metrics = self._train_model(
             reshape_X_to_2d(X_train), y_train,
             reshape_X_to_2d(X_valid), y_valid,
-            reshape_X_to_2d(X_test), y_test
+            reshape_X_to_2d(X_test), y_test,
+            labels
         )
 
         # we move checkpoint model to the place of target model
@@ -137,7 +150,8 @@ class SimpleCNN(MLFlowTask):
     def _train_model(self,
                      train_x, train_y,
                      valid_x, valid_y,
-                     test_x, test_y):
+                     test_x, test_y,
+                     labels):
         # doesn't callback have other ways to catch exception
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
@@ -250,6 +264,32 @@ class SimpleCNN(MLFlowTask):
             output_model.makedirs()
             model_checkpoint_path = f'{output_model.path}_checkpoint'
 
+            callbecks = [
+                EarlyStopping(monitor='val_loss', patience=2),
+                # isn't clear where to store and how would it work with self.output()['model']
+                ModelCheckpoint(
+                    filepath=model_checkpoint_path,
+                    save_best_only=True,
+                    # FIXME:
+                    # the goal of that saving that we can continue train from this point
+                    # but it doesn't work properly because TF doesn't allow Keras optimizer
+                    # save_weights_only=True,
+                    save_weights_only=False,
+                ),
+                TensorBoard(
+                    log_dir=tf_log_dir,
+                    write_images=True,
+                ),
+                # TODO: how can I use it?
+                # LearningRateScheduler
+                # should be optional
+                # ReduceLROnPlateau
+                mlflow_logger
+            ]
+
+            if self.log_confusion_matrix:
+                callbecks.append(LogConfusionMatrix(valid_x, valid_y, labels))
+
             model.fit(
                 train_x, train_y,
                 epochs=self.epoch,
@@ -257,28 +297,7 @@ class SimpleCNN(MLFlowTask):
                 verbose=self.verbose,
                 validation_data=(valid_x, valid_y),
                 # TODO: add EarlyStopping, ModelCheckpoint, TensorBoard
-                callbacks=[
-                    EarlyStopping(monitor='val_loss', patience=2),
-                    # isn't clear where to store and how would it work with self.output()['model']
-                    ModelCheckpoint(
-                        filepath=model_checkpoint_path,
-                        save_best_only=True,
-                        # FIXME:
-                        # the goal of that saving that we can continue train from this point
-                        # but it doesn't work properly because TF doesn't allow Keras optimizer
-                        # save_weights_only=True,
-                        save_weights_only=False,
-                    ),
-                    TensorBoard(
-                        log_dir=tf_log_dir,
-                        write_images=True,
-                    ),
-                    # TODO: how can I use it?
-                    # LearningRateScheduler
-                    # should be optional
-                    # ReduceLROnPlateau
-                    mlflow_logger
-                ]
+                callbacks=callbecks,
             )
             training_time = time.time() - start
             mlflow.log_metric('train_time.total', training_time)
