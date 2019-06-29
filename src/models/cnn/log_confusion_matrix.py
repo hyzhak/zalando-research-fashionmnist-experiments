@@ -30,5 +30,4 @@ class LogConfusionMatrix(Callback):
             for idx in range(self._size * self._size)
         }, step=epoch)
         delta_time = time.time() - start_time
-        print('confusion matrix time', delta_time)
         mlflow.log_metric(f'train_time.confusion_matrix', delta_time, step=epoch)

@@ -76,16 +76,16 @@ class SearchAx(MLFlowTask):
                 'name': 'beta_1',
                 'type': 'range',
                 'bounds': [.0, 0.9999],
-                # 'value_type': 'float',
+                'value_type': 'float',
                 # 'log_scale': True,
             },
-            # {
-            #     'name': 'beta_2',
-            #     'type': 'range',
-            #     'bounds': [.0, 0.9999],
-            #     'value_type': 'float',
-            #     'log_scale': True,
-            # }
+            {
+                'name': 'beta_2',
+                'type': 'range',
+                'bounds': [.0, 0.9999],
+                'value_type': 'float',
+                # 'log_scale': True,
+            }
         ]
 
         # TODO: make reproducibility of search

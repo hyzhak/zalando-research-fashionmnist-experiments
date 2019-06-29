@@ -1,4 +1,5 @@
-from unittest.mock import Mock, MagicMock
+import os
+from unittest.mock import Mock
 
 from src.utils.params_to_filename import get_params_of_task, params_to_filename
 
@@ -7,7 +8,7 @@ def test_params_to_filename_with_simple_params():
     assert params_to_filename({
         'num': 1,
         'str': 'value'
-    }) == 'num=1__str=value'
+    }) == os.path.join('num=1', 'str=value')
 
 
 def test_params_to_filename_with_nested_params():
@@ -20,11 +21,13 @@ def test_params_to_filename_with_nested_params():
                 'e': 'world'
             }
         }
-    }) == 'params.a=1__params.b=hello__params.c.d=2__params.c.e=world'
+    }) == os.path.join(
+        'params.a=1', 'params.b=hello', 'params.c.d=2', 'params.c.e=world'
+    )
 
 
 def test_params_to_filename_with_non_params():
-    assert params_to_filename({}) is ''
+    assert params_to_filename({}) is None
 
 
 def test_get_params_of_task():

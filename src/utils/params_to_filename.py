@@ -1,3 +1,6 @@
+from base64 import b64encode
+import os
+import hashlib
 import luigi
 import json
 
@@ -19,9 +22,10 @@ def gen_deep_key_and_value(d):
 
 
 def params_to_filename(d):
-    return '__'.join(
-        [f'{".".join(key_path)}={value}' for key_path, value in gen_deep_key_and_value(d)]
-    )
+    props = [f'{".".join(key_path)}={value}' for key_path, value in gen_deep_key_and_value(d)]
+    if len(props) == 0:
+        return None
+    return os.path.join(*props)
 
 
 def get_params_of_task(task, exclude=[]):
@@ -47,6 +51,9 @@ def get_params_of_task(task, exclude=[]):
     return params
 
 
+max_length_of_filename = 255
+
+
 def encode_task_to_filename(task, exclude=[]):
     # family = task.get_task_family()
     # encoded_params = params_to_filename(
@@ -55,6 +62,17 @@ def encode_task_to_filename(task, exclude=[]):
     # return '__'.join((family, encoded_params))
 
     # undo encoding of dicts to string
-    return params_to_filename(
+    file_name = params_to_filename(
         get_params_of_task(task, exclude)
     ) or 'default'
+
+    return file_name
+    # alternative HASHING
+    #
+    #
+    # if len(file_name) > max_length_of_filename:
+    #     # if file name is too long we hash it
+    #     h = hashlib.md5(file_name.encode('utf-8'))
+    #     file_name = b64encode(h.digest()).decode('utf-8')
+    #
+    # return file_name
