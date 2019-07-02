@@ -74,7 +74,7 @@ class SimpleCNN(MLFlowTask):
 
     # dir where TensorBoard callback will put logs
     tf_log_dir = luigi.Parameter(
-        default='/var/models/logs/zalando-fashionmnist',
+        default='/var/models/hdd0/logs/zalando-fashionmnist',
         significant=False,
     )
 

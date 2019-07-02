@@ -17,3 +17,24 @@ def flatten(d, parent_key='', sep='.'):
         else:
             items.append((new_key, v))
     return dict(items)
+
+
+def unflatten(d, sep='.'):
+    """
+    unflat dictionary to the deep dictionary
+
+    :param d:
+    :param sep:
+    :return:
+    """
+    res = {}
+    for k, value in d.items():
+        set_deep_value(res, k.split(sep), value)
+    return res
+
+
+def set_deep_value(dd, keys, value):
+    latest = keys.pop()
+    for k in keys:
+        dd = dd.setdefault(k, {})
+    dd.setdefault(latest, value)
