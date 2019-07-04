@@ -17,6 +17,11 @@ class SearchGridTrainSize(SearchGridBase):
             ),
         }
 
+    def get_static_params(self):
+        return {
+            'batch_size': 32,
+        }
+
 
 if __name__ == '__main__':
     luigi.run()

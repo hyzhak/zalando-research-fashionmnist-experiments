@@ -17,6 +17,10 @@ class SearchGridBase(MLFlowTask):
         default='simple_cnn',
         description='model name (e.g. logistic_regression, simple_cnn)'
     )
+    model_params = luigi.DictParameter(
+        default={},
+        description='model parameters'
+    )
     metric = luigi.Parameter(
         default='accuracy',
         description='metric to optimize on accuracy or loss'
@@ -59,6 +63,19 @@ class SearchGridBase(MLFlowTask):
             ),
         }
 
+    def get_static_params(self):
+        """
+        params which won't change in search
+        could be overwritten
+
+        :return:
+        """
+        return {}
+
+    def _store_experiment(self, experiment):
+        with self.output()['experiment'].open('w') as f:
+            pickle.dump(experiment, f)
+
     def ml_run(self, run_id=None):
         mlflow.log_params(flatten(get_params_of_task(self)))
 
@@ -71,14 +88,16 @@ class SearchGridBase(MLFlowTask):
 
         total_training_time = 0
 
-        for idx, params in enumerate(search_state):
-            # preserve search state
-            with self.output()['experiment'].open('w') as f:
-                pickle.dump(search_state, f)
+        # preserve search state
+        self._store_experiment(search_state)
 
+        for idx, params in enumerate(search_state):
+            print('model_task', params)
             model_result = yield model_task(
                 parent_run_id=run_id,
                 random_seed=self.random_seed,
+                **self.get_static_params(),
+                **self.model_params,
                 **params
             )
 
@@ -104,6 +123,9 @@ class SearchGridBase(MLFlowTask):
                 params=model_params,
                 run_id=model_run_id
             )
+
+            # preserve search state
+            self._store_experiment(search_state)
 
         mlflow.log_metric('train_time.total', total_training_time)
         best_trial = search_state.get_best_trial()
