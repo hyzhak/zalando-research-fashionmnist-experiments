@@ -12,7 +12,7 @@ from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import get_params_of_task
 
 
-class SearchGrid(MLFlowTask):
+class SearchGridBase(MLFlowTask):
     model_name = luigi.Parameter(
         default='simple_cnn',
         description='model name (e.g. logistic_regression, simple_cnn)'
@@ -34,42 +34,54 @@ class SearchGrid(MLFlowTask):
             'params': luigi.LocalTarget(
                 path.join(output_dir, 'params.yml')
             ),
-            'grid_experiment': luigi.LocalTarget(
-                path.join(output_dir, 'grid_experiment.pickle'),
+            'experiment': luigi.LocalTarget(
+                path.join(output_dir, 'experiment.pickle'),
                 format=luigi.format.Nop
             )
+        }
+
+    def _get_experiment(self):
+        ax_experiment_file = self.output()['experiment']
+        if not ax_experiment_file.exists():
+            return None
+
+        with ax_experiment_file.open('r') as f:
+            return pickle.load(f)
+
+    def get_params_space(self):
+        """
+        could be overwritten
+        :return:
+        """
+        return {
+            'train_size': np.linspace(
+                1.0 / self.max_runs, 1.0, self.max_runs, endpoint=False
+            ),
         }
 
     def ml_run(self, run_id=None):
         mlflow.log_params(flatten(get_params_of_task(self)))
 
-        params_space = flatten({
-            'train_size': np.linspace(1.0 / 10, 1.0, 10),
-            # 'batch_size': np.linspace(1, 16, 3, dtype=int),
-        })
-        params_grid = np.meshgrid(*params_space.values(), copy=False)
-        # we should use dtype=object because we mix different param types(int, float, string)
-        params_sequence = np.array([p.ravel() for p in params_grid], dtype=object).T
+        search_state = self._get_experiment()
+        if search_state is None:
+            search_state = GridSearchState(self.metric,
+                                           params_space=flatten(self.get_params_space()))
 
         model_task = get_model_task_by_name(self.model_name)
 
         total_training_time = 0
 
-        search_state = GridSearchState(self.metric)
+        for idx, params in enumerate(search_state):
+            # preserve search state
+            with self.output()['experiment'].open('w') as f:
+                pickle.dump(search_state, f)
 
-        # TODO: could store result and current trial
-        for param_values in params_sequence:
-            params = unflatten(dict(zip(params_space.keys(), param_values)))
             model_result = yield model_task(
                 parent_run_id=run_id,
                 random_seed=self.random_seed,
-                # TODO: actually we should be able to pass even nested params
                 **params
-                # **parameters,
-                # optimizer_props=param_values
             )
 
-            # TODO: store run_id in Trial
             model_run_id = self.get_run_id_from_result(model_result)
 
             with model_result['metrics'].open('r') as f:
@@ -80,7 +92,11 @@ class SearchGrid(MLFlowTask):
             with model_result['params'].open('r') as f:
                 model_params = yaml.load(f)
 
-            mlflow.log_metric('train_time.epoch', search_state.get_last_epoch_time())
+            mlflow.log_metric(
+                'train_time.epoch',
+                model_metrics['train_time']['epoch'],
+                step=idx
+            )
 
             search_state.complete_trial(
                 score=model_score_mean,
@@ -90,20 +106,17 @@ class SearchGrid(MLFlowTask):
             )
 
         mlflow.log_metric('train_time.total', total_training_time)
-
         best_trial = search_state.get_best_trial()
         mlflow.log_params(flatten(best_trial.params))
         mlflow.log_metrics(flatten(best_trial.metrics))
 
         with self.output()['metrics'].open('w') as f:
-            yaml.dump(best_trial.metrics, f)
+            yaml.dump(best_trial.metrics, f, default_flow_style=False)
 
         with self.output()['params'].open('w') as f:
-            yaml.dump(best_trial.params, f)
+            yaml.dump(best_trial.params, f, default_flow_style=False)
 
 
-# TODO: make GridSearch iterator
-# which will store current and best trial
 class Trial:
     def __init__(self, metrics, params, score, run_id):
         self.metrics = metrics
@@ -113,9 +126,28 @@ class Trial:
 
 
 class GridSearchState:
-    def __init__(self, metric):
+    def __init__(self, metric, params_space):
         self._metric = metric
         self._best_trial = None
+        self._params_space = params_space
+        params_grid = np.meshgrid(*params_space.values(), copy=False)
+        # we should use dtype=object because we mix different param types(int, float, string)
+        self._idx = -1
+        self._params_sequence = np.array([p.ravel() for p in params_grid], dtype=object).T
+        self._last_idx = len(self._params_sequence) - 1
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._idx >= self._last_idx:
+            raise StopIteration
+
+        self._idx += 1
+        return unflatten(dict(zip(
+            self._params_space.keys(),
+            self._params_sequence[self._idx]
+        )))
 
     def complete_trial(self, score, metrics, params, run_id):
         if self._best_trial is None or \
@@ -126,10 +158,6 @@ class GridSearchState:
                 score=score,
                 run_id=run_id,
             )
-
-    def get_last_epoch_time(self):
-        # TODO:
-        return 0.0
 
     def get_best_trial(self):
         return self._best_trial

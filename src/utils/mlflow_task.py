@@ -4,12 +4,13 @@ import mlflow
 import yaml
 
 from src.utils.params_to_filename import encode_task_to_filename
+from src.utils.project import get_project_name
 from src.utils.snake import get_class_name_as_snake
 
 
 class MLFlowTask(luigi.Task):
     experiment = luigi.Parameter(
-        default='',
+        default=get_project_name(),
         description='ml experiment name',
         significant=False,
     )
