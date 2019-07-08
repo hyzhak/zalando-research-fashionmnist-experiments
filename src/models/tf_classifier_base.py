@@ -1,5 +1,6 @@
 import luigi
 import mlflow
+import numpy as np
 import os
 import shutil
 import tensorflow as tf
@@ -16,27 +17,26 @@ from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
 from src.models.cnn.log_confusion_matrix import LogConfusionMatrix
 from src.models.cnn.mlflow_checkpoint import MLflowCheckpoint
-from src.utils.extract_x_y import extract_x_and_y, get_train_valid_test_subsets, reshape_X_to_2d
+from src.utils.extract_x_y import get_train_valid_test_subsets, reshape_X_to_2d
 from src.utils.flatten import flatten
 from src.utils.mlflow_task import MLFlowTask
 from src.utils.params_to_filename import get_params_of_task, encode_task_to_filename
+from src.utils.project import get_project_name
 from src.utils.seed_randomness import seed_randomness
 
+# FIXME:
+# when run simple_cnn under ax got error
+# "Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR"
+#
+# this solution helped from https://github.com/tensorflow/tensorflow/issues/24496#issuecomment-500605481
+#
+# TODO: can I move it on the top of file?
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+tf.keras.backend.set_session(tf.Session(config=config))
 
-class SimpleCNN(MLFlowTask):
-    model_name = 'simple_cnn'
-    # TODO: how would I know which model is logged in luigi and mlflow?
-    # 1) I can increase version each time I make changes in structure
-    # 2) or put model in separate module and find hash on it
-    # and store hash in mlflow and luigi
-    # 3) or put short description instead of version
-    # 4) each new model should have separate luigi task
-    model_version = 'v1'
 
-    verbose = luigi.IntParameter(
-        default=1,
-        significant=False
-    )
+class TFClassifierBase(MLFlowTask):
     batch_size = luigi.IntParameter(
         default=16,
         description='Batch size passed to the learning algorithm.'
@@ -70,11 +70,14 @@ class SimpleCNN(MLFlowTask):
         default=True,
         significant=False,
     )
-
     # dir where TensorBoard callback will put logs
     tf_log_dir = luigi.Parameter(
-        default='/var/models/2/logs/zalando-fashionmnist',
+        default=f'/var/models/1/logs/{get_project_name()}',
         significant=False,
+    )
+    verbose = luigi.IntParameter(
+        default=1,
+        significant=False
     )
 
     def requires(self):
@@ -98,8 +101,6 @@ class SimpleCNN(MLFlowTask):
         }
 
     def ml_run(self, run_id=None):
-        print('MLFLOW: active_run() simple_cnn', mlflow.active_run())
-
         seed_randomness(self.random_seed)
 
         X_train, X_valid, X_test, y_train, y_valid, y_test = get_train_valid_test_subsets(
@@ -110,6 +111,13 @@ class SimpleCNN(MLFlowTask):
             self.input()['test']
         )
 
+        # TODO: do we need to place preprocessing to separate task?
+
+        X_train = X_train.astype(np.float32) / 255.0
+        X_valid = X_valid.astype(np.float32) / 255.0
+        X_test = X_test.astype(np.float32) / 255.0
+
+        # TODO: can't we get labels inside of self._train_model?
         labels = None
         if self.log_confusion_matrix:
             labels_input = yield ExternalLabelTitles()
@@ -131,50 +139,43 @@ class SimpleCNN(MLFlowTask):
         with self.output()['metrics'].open('w') as f:
             yaml.dump(metrics, f, default_flow_style=False)
 
+    def model(self, input_shape):
+        return keras.Sequential([
+            Conv2D(32, (3, 3), input_shape=input_shape),
+            Activation('relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+
+            Conv2D(32, (3, 3)),
+            Activation('relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+
+            Conv2D(64, (3, 3)),
+            Activation('relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+
+            Flatten(),
+            Dense(64),
+            Activation('relu'),
+            Dropout(0.5),
+            Dense(10),
+            Activation('softmax'),
+        ])
+
     def _train_model(self,
                      train_x, train_y,
                      valid_x, valid_y,
                      test_x, test_y,
                      labels):
-        # doesn't callback have other ways to catch exception
+        # TODO: doesn't callback have other ways to catch exception
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
                               self.metrics) as mlflow_logger:
-            # FIXME:
-            # when run simple_cnn under ax got error
-            # "Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR"
-            #
-            # this solution helped from https://github.com/tensorflow/tensorflow/issues/24496#issuecomment-500605481
-            #
-            # TODO: can I move it on the top of file?
-            config = tf.ConfigProto()
-            config.gpu_options.allow_growth = True
-            tf.keras.backend.set_session(tf.Session(config=config))
 
             # TODO: add batch normalization and dropout
 
-            input_shape = (28, 28, 1)
-
-            model = keras.Sequential([
-                Conv2D(32, (3, 3), input_shape=input_shape),
-                Activation('relu'),
-                MaxPooling2D(pool_size=(2, 2)),
-
-                Conv2D(32, (3, 3)),
-                Activation('relu'),
-                MaxPooling2D(pool_size=(2, 2)),
-
-                Conv2D(64, (3, 3)),
-                Activation('relu'),
-                MaxPooling2D(pool_size=(2, 2)),
-
-                Flatten(),
-                Dense(64),
-                Activation('relu'),
-                Dropout(0.5),
-                Dense(10),
-                Activation('softmax'),
-            ])
+            model = self.model(input_shape=(28, 28, 1))
+            if model is None:
+                raise Exception('Model should be defined')
 
             # TODO: it is solution to save weight only
             #
@@ -210,8 +211,9 @@ class SimpleCNN(MLFlowTask):
                           loss=self.loss,
                           metrics=[self.metrics])
 
+            model_name = encode_task_to_filename(self)
             # log model params to mlflow
-            mlflow.log_param('model_name', self.model_name)
+            mlflow.log_param('model_name', model_name)
 
             # for the moment mlflow doesn't support nested params
             # so we need to flatten them
@@ -226,8 +228,7 @@ class SimpleCNN(MLFlowTask):
 
             tf_log_dir = os.path.join(
                 self.tf_log_dir,
-                self.model_name,
-                encode_task_to_filename(self)
+                model_name
             )
 
             # remove previous log to prevent duplication
@@ -280,7 +281,6 @@ class SimpleCNN(MLFlowTask):
                 batch_size=self.batch_size,
                 verbose=self.verbose,
                 validation_data=(valid_x, valid_y),
-                # TODO: add EarlyStopping, ModelCheckpoint, TensorBoard
                 callbacks=callbecks,
             )
             training_time = time.time() - start
@@ -289,7 +289,3 @@ class SimpleCNN(MLFlowTask):
             metrics = mlflow_logger.get_best_metrics()
 
         return model_checkpoint_path, metrics
-
-
-if __name__ == '__main__':
-    luigi.run()
