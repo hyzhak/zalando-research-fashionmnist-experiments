@@ -1,8 +1,12 @@
-from . import simple_cnn
-
-
 def get_model_task_by_name(name):
-    if name == 'simple_cnn':
-        return simple_cnn.SimpleCNN
-    else:
-        raise NotImplementedError()
+    try:
+        m = __import__(f'src.models.{name}', fromlist=[''])
+    except ModuleNotFoundError:
+        raise Exception(f'There is no such model as {name}')
+
+    print('dir(m)', dir(m))
+
+    if 'Model' not in dir(m):
+        raise Exception(f'Model {name} should define Model class')
+
+    return m.Model

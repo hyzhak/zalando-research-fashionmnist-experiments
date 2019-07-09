@@ -22,5 +22,8 @@ class TFClassifierFC2(TFClassifierBase):
         ])
 
 
+# export model
+Model = TFClassifierFC2
+
 if __name__ == '__main__':
     luigi.run()

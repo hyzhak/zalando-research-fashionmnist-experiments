@@ -13,7 +13,7 @@ from src.utils.params_to_filename import get_params_of_task
 
 
 class SearchGridBase(MLFlowTask):
-    model_name = luigi.Parameter(
+    model = luigi.Parameter(
         default='simple_cnn',
         description='model name (e.g. logistic_regression, simple_cnn)'
     )
@@ -84,7 +84,7 @@ class SearchGridBase(MLFlowTask):
             search_state = GridSearchState(self.metric,
                                            params_space=flatten(self.get_params_space()))
 
-        model_task = get_model_task_by_name(self.model_name)
+        model_task = get_model_task_by_name(self.model)
 
         total_training_time = 0
 

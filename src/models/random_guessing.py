@@ -85,5 +85,8 @@ class RandomGuessing(MLFlowTask):
         mlflow.log_metrics(flatten(metrics))
 
 
+# export model
+Model = RandomGuessing
+
 if __name__ == '__main__':
     luigi.run()

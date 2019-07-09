@@ -10,7 +10,7 @@ from src.models.tf_classifier_base import TFClassifierBase
 
 
 class TFClassifierCNNTiny(TFClassifierBase):
-    dropout = luigi.IntParameter(
+    dropout = luigi.FloatParameter(
         default=0.5,
         description='Dropout'
     )
@@ -33,10 +33,14 @@ class TFClassifierCNNTiny(TFClassifierBase):
             Dense(64),
             Activation('relu'),
             Dropout(self.dropout),
+
             Dense(10),
             Activation('softmax'),
         ])
 
+
+# export model
+Model = TFClassifierCNNTiny
 
 if __name__ == '__main__':
     luigi.run()

@@ -291,5 +291,8 @@ class SimpleCNN(MLFlowTask):
         return model_checkpoint_path, metrics
 
 
+# export model
+Model = SimpleCNN
+
 if __name__ == '__main__':
     luigi.run()
