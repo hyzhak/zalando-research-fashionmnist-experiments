@@ -16,14 +16,14 @@ class SearchGridDropout(SearchGridBase):
     )
 
     dropout_max = luigi.IntParameter(
-        default=0.9,
+        default=0.95,
         description='max dropout'
     )
 
     def get_params_space(self):
         return {
             'dropout': np.linspace(
-                self.dropout_min, self.dropout_max, self.max_runs, endpoint=False
+                self.dropout_min, self.dropout_max, self.max_runs, endpoint=True
             ),
         }
 

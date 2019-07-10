@@ -4,10 +4,7 @@ import numpy as np
 import os
 import shutil
 import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
-from tensorflow.keras.layers import Conv2D, MaxPooling2D
-from tensorflow.keras.layers import Activation, Dropout, Flatten, Dense
 from tensorflow.keras import optimizers
 import time
 import yaml
@@ -140,26 +137,7 @@ class TFClassifierBase(MLFlowTask):
             yaml.dump(metrics, f, default_flow_style=False)
 
     def model(self, input_shape):
-        return keras.Sequential([
-            Conv2D(32, (3, 3), input_shape=input_shape),
-            Activation('relu'),
-            MaxPooling2D(pool_size=(2, 2)),
-
-            Conv2D(32, (3, 3)),
-            Activation('relu'),
-            MaxPooling2D(pool_size=(2, 2)),
-
-            Conv2D(64, (3, 3)),
-            Activation('relu'),
-            MaxPooling2D(pool_size=(2, 2)),
-
-            Flatten(),
-            Dense(64),
-            Activation('relu'),
-            Dropout(0.5),
-            Dense(10),
-            Activation('softmax'),
-        ])
+        raise Exception('model should be overwritten in inheritor')
 
     def _train_model(self,
                      train_x, train_y,
