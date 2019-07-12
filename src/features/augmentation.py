@@ -14,7 +14,56 @@ def safe_param(f, apply=float, default=None):
 
 
 def safe_list(l, apply):
-    return [apply(v) for v in l.split(',')] if l is not None else None
+    if isinstance(l, str):
+        l = l.split(',')
+    return [
+        apply(v) for v in l
+    ] if l is not None else None
+
+
+def build_augmentation_generator(
+        train_x, train_y,
+        batch_size,
+        random_seed,
+        zca=None,
+        rotation_range=0,
+        width_shift_range=0.0,
+        height_shift_range=0.0,
+        brightness_range=None,
+        shear_range=0.0,
+        zoom_range=0.0,
+        horizontal_flip=False,
+        vertical_flip=False,
+        fill_mode='constant',
+        cval=0.0,
+        **kwargs
+):
+    ig = ImageDataGenerator(
+        # because train_images.shape: (54000, 28, 28, 1)
+        data_format='channels_last',
+        zca_whitening=zca is not None,
+        zca_epsilon=safe_param(zca, float),
+        rotation_range=rotation_range,
+        width_shift_range=width_shift_range,
+        height_shift_range=height_shift_range,
+        brightness_range=safe_list(brightness_range, float),
+        shear_range=shear_range,
+        zoom_range=zoom_range,
+        horizontal_flip=horizontal_flip,
+        vertical_flip=vertical_flip,
+        fill_mode=fill_mode,
+        cval=cval
+    )
+
+    if zca is not None:
+        ig.fit(train_x, seed=random_seed)
+
+    train_generator = ig.flow(train_x, train_y,
+                              batch_size=batch_size,
+                              seed=random_seed,
+                              **kwargs)
+
+    return train_generator
 
 
 class Augmentation(luigi.Task):
@@ -93,21 +142,6 @@ class Augmentation(luigi.Task):
     def run(self):
         # self.brightness_range
         # self.channel_shift_range
-        datagen = ImageDataGenerator(
-            # because train_images.shape: (54000, 28, 28, 1)
-            data_format='channels_last',
-            zca_whitening=self.zca is not None,
-            zca_epsilon=safe_param(self.zca, float),
-            rotation_range=self.rotation_range,
-            width_shift_range=self.width_shift_range,
-            height_shift_range=self.height_shift_range,
-            brightness_range=safe_list(self.brightness_range, float),
-            shear_range=self.shear_range,
-            zoom_range=self.zoom_range,
-            horizontal_flip=self.horizontal_flip,
-            vertical_flip=self.vertical_flip,
-            fill_mode=self.fill_mode,
-            cval=0.0)
 
         X_train, _, _, _, _, _ = get_train_valid_test_subsets(
             self.train_size,
@@ -128,19 +162,31 @@ class Augmentation(luigi.Task):
         output_target = self.output()
         os.makedirs(output_target.path)
 
-        if self.zca is not None:
-            datagen.fit(train_images,
-                        seed=self.random_seed)
+        images_gen = build_augmentation_generator(
+            train_x=train_images, train_y=None,
+            # because train_images.shape: (54000, 28, 28, 1)
+            zca=self.zca,
+            rotation_range=self.rotation_range,
+            width_shift_range=self.width_shift_range,
+            height_shift_range=self.height_shift_range,
+            brightness_range=self.brightness_range,
+            shear_range=self.shear_range,
+            zoom_range=self.zoom_range,
+            horizontal_flip=self.horizontal_flip,
+            vertical_flip=self.vertical_flip,
+            fill_mode=self.fill_mode,
+            cval=0.0,
+            batch_size=1,
+            save_to_dir=output_target.path,
+            save_prefix='img',
+            save_format='jpeg',
+            random_seed=self.random_seed
+        )
 
         i = 0
         limit = safe_param(self.batch_size, int, len(train_images))
 
-        for _ in datagen.flow(train_images,
-                              batch_size=1,
-                              save_to_dir=output_target.path,
-                              save_prefix='img',
-                              save_format='jpeg',
-                              seed=self.random_seed):
+        for _ in images_gen:
             self.set_status_message(f'Progress: {i} / 100')
             self.set_progress_percentage(i / 20)
             i += 1

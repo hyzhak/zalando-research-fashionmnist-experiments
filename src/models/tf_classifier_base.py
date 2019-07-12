@@ -12,6 +12,7 @@ import yaml
 from src.data.external_label_titles import ExternalLabelTitles
 from src.data.external_test_set import ExternalTestSet
 from src.data.external_train_set import ExternalTrainSet
+from src.features.augmentation import build_augmentation_generator
 from src.models.cnn.log_confusion_matrix import LogConfusionMatrix
 from src.models.cnn.mlflow_checkpoint import MLflowCheckpoint
 from src.utils.extract_x_y import get_train_valid_test_subsets, reshape_X_to_2d
@@ -34,6 +35,10 @@ tf.keras.backend.set_session(tf.Session(config=config))
 
 
 class TFClassifierBase(MLFlowTask):
+    augmentation = luigi.DictParameter(
+        default=None,
+        description='use augmentation of images'
+    )
     batch_size = luigi.IntParameter(
         default=16,
         description='Batch size passed to the learning algorithm.'
@@ -144,6 +149,16 @@ class TFClassifierBase(MLFlowTask):
                      valid_x, valid_y,
                      test_x, test_y,
                      labels):
+        if self.augmentation:
+            train_generator = build_augmentation_generator(
+                train_x, train_y,
+                batch_size=self.batch_size,
+                random_seed=self.random_seed,
+                **self.augmentation,
+            )
+        else:
+            train_generator = None
+
         # TODO: doesn't callback have other ways to catch exception
         # inside of model training loop?
         with MLflowCheckpoint(test_x, test_y,
@@ -253,14 +268,24 @@ class TFClassifierBase(MLFlowTask):
             if self.log_confusion_matrix:
                 callbecks.append(LogConfusionMatrix(valid_x, valid_y, labels))
 
-            model.fit(
-                train_x, train_y,
+            fit_args = dict(
                 epochs=self.epoch,
-                batch_size=self.batch_size,
                 verbose=self.verbose,
                 validation_data=(valid_x, valid_y),
-                callbacks=callbecks,
+                callbacks=callbecks
             )
+
+            if train_generator:
+                model.fit_generator(
+                    train_generator,
+                    **fit_args
+                )
+            else:
+                model.fit(
+                    train_x, train_y,
+                    batch_size=self.batch_size,
+                    **fit_args
+                )
             training_time = time.time() - start
             mlflow.log_metric('train_time.total', training_time)
 
