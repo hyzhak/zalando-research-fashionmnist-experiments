@@ -22,7 +22,7 @@ def gen_deep_key_and_value(d):
 
 
 def params_to_filename(d):
-    props = [f'{".".join(key_path)}={value}' for key_path, value in gen_deep_key_and_value(d)]
+    props = [f'{".".join(key_path)}={value}' for key_path, value in gen_deep_key_and_value(d) if value is not None]
     if len(props) == 0:
         return None
     return os.path.join(*props)
