@@ -21,6 +21,11 @@ class MLFlowTask(luigi.Task):
         significant=False,
     )
 
+    run_name = luigi.OptionalParameter(
+        default=None,
+        significant=False,
+    )
+
     def output(self):
         encoded_params = encode_task_to_filename(self)
         class_name = get_class_name_as_snake(self)
@@ -84,6 +89,7 @@ class MLFlowTask(luigi.Task):
 
         with mlflow.start_run(
                 run_id=run_id,
+                run_name=self.run_name,
                 nested=self.parent_run_id != ''
         ) as run:
             with mlflow_output.open('w') as f:
