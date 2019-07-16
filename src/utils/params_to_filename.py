@@ -4,6 +4,8 @@ import hashlib
 import luigi
 import json
 
+from src.utils.snake import get_class_name_as_snake
+
 
 def encode_value(v):
     if v is dict:
@@ -76,3 +78,9 @@ def encode_task_to_filename(task, exclude=[]):
     #     file_name = b64encode(h.digest()).decode('utf-8')
     #
     # return file_name
+
+
+def get_task_path(task):
+    class_name = get_class_name_as_snake(task)
+    encoded_params = encode_task_to_filename(task)
+    return os.path.join(class_name, encoded_params)

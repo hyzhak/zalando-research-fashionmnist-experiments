@@ -75,13 +75,22 @@ class LatentSpaceFeature(luigi.Task):
 
     def run(self):
         image_size = 48
-        model = None
-        preprocessing = None
         if self.model == 'vgg16':
             model = applications.vgg16.VGG16(include_top=False,
                                              input_shape=(image_size, image_size, 3),
                                              weights='imagenet')
             preprocessing = applications.vgg16.preprocess_input
+        elif self.model == 'resnet':
+            model = applications.resnet50.ResNet50(include_top=False,
+                                                   weights='imagenet',
+                                                   # It should have exactly 3 inputs channels,
+                                                   # and width and height should be no smaller than 32
+                                                   input_shape=(image_size, image_size, 3),
+                                                   # 'avg' means that global average pooling will be applied
+                                                   # to the output of the last convolutional layer, and thus
+                                                   # the output of the model will be a 2D tensor.
+                                                   pooling='avg')
+            preprocessing = applications.resnet50.preprocess_input
         else:
             # TODO: add other model
             raise NotImplementedError()
