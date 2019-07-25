@@ -64,11 +64,11 @@ class PCALatentSpaceFeature(luigi.Task):
             pca.explained_variance_ratio_.cumsum()
         )
 
-        pca = PCA(random_state=self.random_seed)
+        pca = PCA(random_state=self.random_seed, n_components=2)
         embedded = pca.fit_transform(X)
 
         df = pd.DataFrame(embedded,
-                          columnns=['x1', 'x2'],
+                          columns=['x1', 'x2'],
                           dtype=np.float32)
 
         output_file['features'].makedirs()

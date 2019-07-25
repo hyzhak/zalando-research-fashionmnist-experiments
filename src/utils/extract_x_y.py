@@ -14,7 +14,7 @@ def extract_x_and_y(input_file):
     return df[pixel_features].values, df['label'].values
 
 
-def get_images(input_file, channels):
+def get_images(input_file, channels=-1):
     with input_file.open('r') as f:
         df = pd.read_csv(f, dtype=np.int16)
     pixel_features = df.columns[df.columns.str.contains('pixel')]
@@ -26,7 +26,10 @@ def get_images(input_file, channels):
 
 
 def reshape_X_to_2d(X, channels=1):
-    return X.reshape(X.shape[0], img_rows, img_cols, channels)
+    if channels < 0:
+        return X.reshape(X.shape[0], img_rows, img_cols)
+    else:
+        return X.reshape(X.shape[0], img_rows, img_cols, channels)
 
 
 def get_train_valid_test_subsets(train_size, valid_size, random_seed, train_file, test_file):

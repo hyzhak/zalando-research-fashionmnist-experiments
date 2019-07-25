@@ -1,15 +1,13 @@
 import luigi
-from keras.preprocessing.image import img_to_array, array_to_img
+from keras.callbacks import LambdaCallback, ProgbarLogger
+from keras.preprocessing.image import ImageDataGenerator, img_to_array, array_to_img
 import numpy as np
 import os
 import pandas as pd
 from tensorflow.keras import applications
 from time import time
 
-from src.data.external_test_set import ExternalTestSet
-from src.data.external_train_set import ExternalTrainSet
-from src.utils.extract_x_y import get_images, get_train_valid_test_subsets, \
-    reshape_X_to_2d, img_rows, img_cols
+from src.data.image_files import ImageFiles
 from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.snake import get_class_name_as_snake
 
@@ -20,10 +18,7 @@ class LatentSpaceFeature(luigi.Task):
     )
 
     def requires(self):
-        return {
-            'test': ExternalTestSet(),
-            'train': ExternalTrainSet(),
-        }
+        return ImageFiles()
 
     def output(self):
         class_name = get_class_name_as_snake(self)
@@ -31,32 +26,61 @@ class LatentSpaceFeature(luigi.Task):
         return {
             'test': luigi.LocalTarget(
                 os.path.join('data', 'interim', class_name, encoded_params,
-                             'test.parquet.gzip')
+                             'test.parquet.gzip'),
+                format=luigi.format.Nop
             ),
             'train': luigi.LocalTarget(
                 os.path.join('data', 'interim', class_name, encoded_params,
-                             'train.parquet.gzip')
+                             'train.parquet.gzip'),
+                format=luigi.format.Nop
             ),
         }
 
-    def _process_and_store(self, input_file, output_file, size,
+    def _process_and_store(self, name,
+                           input_dir, output_file,
+                           image_size,
                            preprocessing, model):
-        # we should have 3 channels
-        images = get_images(input_file, 3)
-        print('images.shape:', images.shape)
+        def preprocessing_fn(i):
+            # Upscale the images to input_size*input_size as required by pre-trained models
+            i = img_to_array(array_to_img(i, scale=False).resize((image_size, image_size)))
+            return preprocessing(i)
 
-        # Upscale the images to 48*48 as required by VGG16 (minimum 32)
-        images = np.asarray([
-            img_to_array(array_to_img(i, scale=False).resize((size, size)))
-            for i in images]
+        ig = ImageDataGenerator(
+            data_format='channels_last',
+            preprocessing_function=preprocessing_fn,
         )
-        print('images.shape (after resize):', images.shape)
+        gen = ig.flow_from_directory(
+            input_dir.path,
+            target_size=(image_size, image_size),
+            class_mode=None,
+            shuffle=False,
+            # color_mode="rgb",
+            batch_size=1,
+        )
+        # images = get_images(input_file, 3)
+        # gen = ig.flow(images)
+        filenames = gen.filenames
+        num_of_samples = len(filenames)
 
-        images = preprocessing(images)
-        print('images.shape (after pre-processing):', images.shape)
+        def on_predict_batch_end(batch, logs={}):
+            self.set_status_message(f'Predict ({name}): {batch} / {num_of_samples}')
+            self.set_progress_percentage(batch / num_of_samples)
 
-        features = model.predict(images, verbose=1)
-        print('features.shape:', features.shape)
+        gen.reset()
+
+        features = model.predict_generator(gen,
+                                           callbacks=[
+                                               LambdaCallback(
+                                                   on_predict_begin=lambda *args: None,
+                                                   on_predict_batch_begin=lambda *args: None,
+                                                   on_predict_batch_end=on_predict_batch_end,
+                                                   on_predict_end=lambda *args: None,
+                                               ),
+                                           ],
+                                           workers=4,
+                                           use_multiprocessing=True,
+                                           steps=num_of_samples,
+                                           verbose=1)
 
         features = np.squeeze(features)
         print('features.shape (after squeezing):', features.shape)
@@ -74,6 +98,8 @@ class LatentSpaceFeature(luigi.Task):
         print('save to parquet: ', time() - start_save)
 
     def run(self):
+        # weights of models will be loaded from
+        # https://github.com/fchollet/deep-learning-models/releases
         image_size = 48
         if self.model == 'vgg16':
             model = applications.vgg16.VGG16(include_top=False,
@@ -91,6 +117,27 @@ class LatentSpaceFeature(luigi.Task):
                                                    # the output of the model will be a 2D tensor.
                                                    pooling='avg')
             preprocessing = applications.resnet50.preprocess_input
+        elif self.model == 'mobilenet':
+            image_size = 128
+            # If imagenet weights are being loaded, input must have a static square shape
+            # (one of (128, 128), (160, 160), (192, 192), or (224, 224))
+            model = applications.mobilenet.MobileNet(include_top=False,
+                                                     weights='imagenet',
+                                                     # It should have exactly 3 inputs channels,
+                                                     # and width and height should be no smaller than 32
+                                                     input_shape=(image_size, image_size, 3),
+                                                     # controls the width of the network
+                                                     # alpha=0,
+
+                                                     # depth_multiplier: depth multiplier for depthwise convolution(also called the resolution multiplier)
+
+                                                     # dropout
+
+                                                     # 'avg' means that global average pooling will be applied
+                                                     # to the output of the last convolutional layer, and thus
+                                                     # the output of the model will be a 2D tensor.
+                                                     pooling='avg')
+            preprocessing = applications.mobilenet.preprocess_input
         else:
             # TODO: add other model
             raise NotImplementedError()
@@ -98,9 +145,10 @@ class LatentSpaceFeature(luigi.Task):
         model.summary()
         start_time = time()
         self._process_and_store(
+            'train',
             self.input()['train'],
             self.output()['train'],
-            size=image_size,
+            image_size=image_size,
             preprocessing=preprocessing,
             model=model,
         )
@@ -108,9 +156,10 @@ class LatentSpaceFeature(luigi.Task):
 
         start_time = time()
         self._process_and_store(
+            'test',
             self.input()['test'],
             self.output()['test'],
-            size=image_size,
+            image_size=image_size,
             preprocessing=preprocessing,
             model=model,
         )
