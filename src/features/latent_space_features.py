@@ -1,5 +1,4 @@
 import luigi
-from keras.callbacks import LambdaCallback, ProgbarLogger
 from keras.preprocessing.image import ImageDataGenerator, img_to_array, array_to_img
 import numpy as np
 import os
@@ -10,11 +9,18 @@ from time import time
 from src.data.image_files import ImageFiles
 from src.utils.params_to_filename import encode_task_to_filename
 from src.utils.snake import get_class_name_as_snake
+from src.utils.luigi_task_callback import LuigiTaskCallback
 
 
 class LatentSpaceFeature(luigi.Task):
     model = luigi.Parameter(
         default='vgg16'
+    )
+
+    batch_size = luigi.IntParameter(
+        default=32,
+        description='batch size',
+        significant=False,
     )
 
     def requires(self):
@@ -54,27 +60,17 @@ class LatentSpaceFeature(luigi.Task):
             target_size=(image_size, image_size),
             class_mode=None,
             shuffle=False,
-            # color_mode="rgb",
-            batch_size=1,
+            batch_size=self.batch_size,
         )
-        # images = get_images(input_file, 3)
-        # gen = ig.flow(images)
         filenames = gen.filenames
-        num_of_samples = len(filenames)
-
-        def on_predict_batch_end(batch, logs={}):
-            self.set_status_message(f'Predict ({name}): {batch} / {num_of_samples}')
-            self.set_progress_percentage(batch / num_of_samples)
+        num_of_samples = len(filenames) / self.batch_size
 
         gen.reset()
 
         features = model.predict_generator(gen,
                                            callbacks=[
-                                               LambdaCallback(
-                                                   on_predict_begin=lambda *args: None,
-                                                   on_predict_batch_begin=lambda *args: None,
-                                                   on_predict_batch_end=on_predict_batch_end,
-                                                   on_predict_end=lambda *args: None,
+                                               LuigiTaskCallback(
+                                                   self, name, num_of_samples
                                                ),
                                            ],
                                            workers=4,
@@ -95,7 +91,7 @@ class LatentSpaceFeature(luigi.Task):
         df.to_parquet(output_file.path,
                       compression='brotli')
         # TODO: I might need that information to store in mlflow (or not?)
-        print('save to parquet: ', time() - start_save)
+        print('saved to parquet in: ', time() - start_save, 'sec')
 
     def run(self):
         # weights of models will be loaded from
@@ -138,6 +134,14 @@ class LatentSpaceFeature(luigi.Task):
                                                      # the output of the model will be a 2D tensor.
                                                      pooling='avg')
             preprocessing = applications.mobilenet.preprocess_input
+        elif self.model == 'xception':
+            image_size = 71  # default 299x299
+            model = applications.xception.Xception(include_top=False,
+                                                   weights='imagenet',
+
+                                                   input_shape=(image_size, image_size, 3),
+                                                   pooling='avg')
+            preprocessing = applications.xception.preprocess_input
         else:
             # TODO: add other model
             raise NotImplementedError()
